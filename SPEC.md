@@ -1,0 +1,876 @@
+# chuk-mcp-lazarus -- Specification
+
+**Mechanistic interpretability MCP server wrapping chuk-lazarus**
+Built on `chuk-mcp-server` -- Model-agnostic -- Apple Silicon native via MLX
+
+---
+
+## Overview
+
+`chuk-mcp-lazarus` exposes chuk-lazarus's introspection primitives as
+MCP tools so that a reasoning model (Claude) can autonomously design
+and execute mechanistic interpretability experiments on any
+locally-loaded language model.
+
+The flagship demo is **language transition probing on TranslateGemma
+4B**: Claude trains linear probes to discover which layer the model
+transitions from source-language to target-language representations,
+then performs activation steering to redirect translations to a
+different target language -- a live computational surgery
+demonstration.
+
+The server is model-agnostic. Any model supported by chuk-lazarus
+(Gemma, Llama, Qwen, Granite, Jamba, Mamba, StarCoder2, GPT-2) works
+with every tool.
+
+---
+
+## Repository Layout
+
+```
+chuk-mcp-lazarus/
+├── src/
+│   └── chuk_mcp_lazarus/
+│       ├── __init__.py              # Package init, imports server + tools + resources
+│       ├── server.py                # ChukMCPServer instance
+│       ├── main.py                  # Entry point (stdio / http)
+│       ├── model_state.py           # Singleton: loaded model + tokenizer
+│       ├── probe_store.py           # Singleton: probe registry
+│       ├── steering_store.py        # Singleton: steering vector registry
+│       ├── resources.py             # MCP resources (model://info, probes, vectors)
+│       ├── errors.py                # ToolError enum + error envelope helper
+│       ├── _bootstrap.py            # Optional dependency stubs
+│       ├── comparison_state.py       # Singleton: comparison model (2nd model)
+│       ├── _serialize.py            # mx.array / np.ndarray -> JSON-safe
+│       ├── _generate.py             # Shared text generation helper
+│       ├── _compare.py              # Shared comparison kernels
+│       └── tools/
+│           ├── __init__.py
+│           ├── model_tools.py       # load_model, get_model_info
+│           ├── activation_tools.py  # extract_activations, compare_activations
+│           ├── probe_tools.py       # train_probe, evaluate_probe,
+│           │                        #   scan_probe_across_layers, list_probes
+│           ├── steering_tools.py    # compute_steering_vector,
+│           │                        #   steer_and_generate, list_steering_vectors
+│           ├── ablation_tools.py    # ablate_layers, patch_activations
+│           ├── generation_tools.py  # generate_text, predict_next_token,
+│           │                        #   tokenize, logit_lens
+│           └── comparison_tools.py # load_comparison_model, compare_weights,
+│                                   #   compare_representations, compare_attention,
+│                                   #   compare_generations, unload_comparison_model
+├── tests/
+├── pyproject.toml
+├── ARCHITECTURE.md
+├── ROADMAP.md
+├── SPEC.md
+└── README.md
+```
+
+---
+
+## Dependencies
+
+```toml
+[project]
+name = "chuk-mcp-lazarus"
+version = "0.4.0"
+requires-python = ">=3.11"
+
+dependencies = [
+    "chuk-mcp-server>=0.25",
+    "chuk-lazarus>=0.4",
+    "scikit-learn>=1.4",
+    "numpy>=1.26",
+    "mlx>=0.18",
+    "mlx-lm>=0.18",
+]
+```
+
+---
+
+## Server Entry Point
+
+```python
+# server.py
+from chuk_mcp_server import ChukMCPServer
+
+mcp = ChukMCPServer(
+    name="chuk-mcp-lazarus",
+    version="0.1.0",
+    title="Lazarus Interpretability Server",
+    description=(
+        "Mechanistic interpretability toolkit. "
+        "Load any model, extract activations, train probes, "
+        "steer generation, and ablate components to reveal "
+        "internal structure."
+    ),
+)
+```
+
+```python
+# __init__.py
+from .server import mcp
+from .tools import *          # noqa: F403 -- triggers @mcp.tool() registration
+
+__version__ = "0.1.0"
+__all__ = ["mcp"]
+```
+
+Tools register via instance decorators on the shared `mcp` object:
+
+```python
+# tools/model_tools.py
+from ..server import mcp
+
+@mcp.tool()
+async def load_model(model_id: str = "google/gemma-3-4b-it") -> dict:
+    ...
+```
+
+---
+
+## Tool Catalogue
+
+### Group 1 -- Model Management
+
+#### `load_model`
+
+```python
+@mcp.tool(idempotent_hint=True)
+async def load_model(
+    model_id: str = "google/gemma-3-4b-it",
+    dtype: str = "bfloat16",
+) -> dict:
+    """
+    Load a HuggingFace model into memory.
+    Must be called before any other tool.
+
+    Works with any model chuk-lazarus supports: Gemma, Llama, Qwen,
+    Granite, Jamba, Mamba, StarCoder2, GPT-2, and more.
+
+    Args:
+        model_id: HuggingFace model ID or local path.
+        dtype:    Weight dtype. One of: bfloat16, float16, float32.
+
+    Returns:
+        model_id, num_layers, hidden_dim, num_heads, architecture, status
+    """
+```
+
+Uses `UnifiedPipeline.from_pretrained()`. Stores result in
+`ModelState` singleton. Subsequent calls with the same `model_id`
+return immediately (idempotent).
+
+#### `get_model_info`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def get_model_info() -> dict:
+    """
+    Return architecture metadata for the currently-loaded model.
+
+    Returns:
+        model_id, num_layers, hidden_dim, num_attention_heads,
+        num_kv_heads, vocab_size, max_position_embeddings,
+        architecture, family, is_moe, num_experts
+    """
+```
+
+---
+
+### Group 2 -- Activation Extraction
+
+#### `extract_activations`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def extract_activations(
+    prompt: str,
+    layers: list[int],
+    token_position: int = -1,
+    capture_attention: bool = False,
+) -> dict:
+    """
+    Run a forward pass and return hidden-state activations at the
+    specified layers for one token position.
+
+    Args:
+        prompt:            Input text.
+        layers:            Layer indices (0-indexed).
+        token_position:    Which token's activation to return.
+                           -1 = last token (default).
+        capture_attention: Also return attention weights (memory-heavy).
+
+    Returns:
+        prompt, token_position, token_text, num_tokens,
+        activations: {layer_idx: [float, ...]}
+    """
+```
+
+Wraps `ModelHooks` with `CaptureConfig`. Returns hidden states as
+plain Python lists.
+
+#### `compare_activations`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def compare_activations(
+    prompts: list[str],
+    layer: int,
+    token_position: int = -1,
+) -> dict:
+    """
+    Extract activations at a single layer for multiple prompts.
+    Returns pairwise cosine similarities and a 2-D PCA projection.
+
+    Args:
+        prompts:        2-8 input strings.
+        layer:          Layer index.
+        token_position: Token position (default: last).
+
+    Returns:
+        layer, prompts, cosine_similarity_matrix, pca_2d,
+        centroid_distance
+    """
+```
+
+---
+
+### Group 3 -- Probing
+
+#### `train_probe`
+
+```python
+@mcp.tool()
+async def train_probe(
+    probe_name: str,
+    layer: int,
+    examples: list[dict],
+    probe_type: str = "linear",
+    token_position: int = -1,
+) -> dict:
+    """
+    Train a probe classifier on activations at the specified layer.
+
+    Args:
+        probe_name:     Unique name for this probe.
+        layer:          Layer to extract activations from.
+        examples:       [{"prompt": str, "label": str}, ...]
+        probe_type:     "linear" (LogisticRegression) or "mlp".
+        token_position: Token position (default: last).
+
+    Returns:
+        probe_name, layer, probe_type, num_examples, classes,
+        train_accuracy, val_accuracy, coefficients_norm
+    """
+```
+
+#### `evaluate_probe`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def evaluate_probe(
+    probe_name: str,
+    examples: list[dict],
+    token_position: int = -1,
+) -> dict:
+    """
+    Evaluate a stored probe on new examples.
+
+    Returns:
+        probe_name, accuracy, per_class_accuracy, confusion_matrix,
+        predictions: [{prompt, true_label, predicted_label, confidence}]
+    """
+```
+
+#### `scan_probe_across_layers`
+
+```python
+@mcp.tool()
+async def scan_probe_across_layers(
+    probe_name_prefix: str,
+    layers: list[int],
+    examples: list[dict],
+    probe_type: str = "linear",
+    token_position: int = -1,
+) -> dict:
+    """
+    Train and evaluate a probe at every specified layer in one call.
+    Primary tool for finding the crossover layer in language
+    transition experiments.
+
+    Creates probes named "{probe_name_prefix}_L{layer}" for each layer.
+
+    Args:
+        probe_name_prefix: Base name; layer suffix appended.
+        layers:            Layers to scan.
+        examples:          [{"prompt": str, "label": str}, ...]
+        probe_type:        "linear" or "mlp".
+        token_position:    Token position (default: last).
+
+    Returns:
+        probe_name_prefix, layers_scanned,
+        accuracy_by_layer: {layer: {train_accuracy, val_accuracy}},
+        peak_layer, peak_val_accuracy, crossover_layer, interpretation
+    """
+```
+
+Implementation caches activations: each example runs one forward pass
+through all layers, then probes are trained from the cache. For a
+34-layer model with 40 examples this avoids 34x redundant forward
+passes.
+
+#### `list_probes`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def list_probes() -> dict:
+    """
+    List all probes in memory.
+
+    Returns:
+        probes: [{name, layer, classes, probe_type, val_accuracy, trained_at}],
+        count
+    """
+```
+
+---
+
+### Group 4 -- Steering
+
+#### `compute_steering_vector`
+
+```python
+@mcp.tool()
+async def compute_steering_vector(
+    vector_name: str,
+    layer: int,
+    positive_prompts: list[str],
+    negative_prompts: list[str],
+    token_position: int = -1,
+) -> dict:
+    """
+    Compute a steering vector as the mean difference between two sets
+    of activations (contrastive activation addition).
+
+    Args:
+        vector_name:       Name to store this vector under.
+        layer:             Layer to compute the vector at.
+        positive_prompts:  Target direction (e.g. German sentences).
+        negative_prompts:  Source direction (e.g. English sentences).
+        token_position:    Token position (default: last).
+
+    Returns:
+        vector_name, layer, vector_norm, cosine_similarity_within_positive,
+        cosine_similarity_within_negative, separability_score,
+        num_positive, num_negative
+    """
+```
+
+#### `steer_and_generate`
+
+```python
+@mcp.tool()
+async def steer_and_generate(
+    prompt: str,
+    vector_name: str,
+    alpha: float = 20.0,
+    max_new_tokens: int = 100,
+) -> dict:
+    """
+    Generate text with a steering vector applied to the residual stream.
+
+    Runs both a steered and baseline generation for comparison.
+
+    Args:
+        prompt:         Input prompt.
+        vector_name:    Name of a stored steering vector.
+        alpha:          Steering strength (start at 10-20).
+        max_new_tokens: Maximum tokens to generate.
+
+    Returns:
+        prompt, vector_name, alpha, steered_output, baseline_output,
+        steered_tokens, baseline_tokens
+    """
+```
+
+#### `list_steering_vectors`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def list_steering_vectors() -> dict:
+    """
+    List all steering vectors in memory.
+
+    Returns:
+        vectors: [{name, layer, vector_norm, separability_score, computed_at}],
+        count
+    """
+```
+
+---
+
+### Group 5 -- Ablation
+
+#### `ablate_layers`
+
+```python
+@mcp.tool()
+async def ablate_layers(
+    prompt: str,
+    layers: list[int],
+    max_new_tokens: int = 50,
+    ablation_type: str = "zero",
+) -> dict:
+    """
+    Generate text with specific layers zeroed out or mean-ablated.
+
+    Args:
+        prompt:         Input text.
+        layers:         Layer indices to ablate.
+        max_new_tokens: Tokens to generate.
+        ablation_type:  "zero" or "mean".
+
+    Returns:
+        prompt, ablated_layers, ablated_output, baseline_output,
+        output_similarity, disruption_score
+    """
+```
+
+#### `patch_activations`
+
+```python
+@mcp.tool()
+async def patch_activations(
+    source_prompt: str,
+    target_prompt: str,
+    layer: int,
+    max_new_tokens: int = 50,
+) -> dict:
+    """
+    Activation patching: run target_prompt but replace the hidden state
+    at a layer with the hidden state from source_prompt.
+
+    Args:
+        source_prompt:  Prompt whose activations we borrow.
+        target_prompt:  Prompt we generate for.
+        layer:          Layer at which to patch.
+        max_new_tokens: Tokens to generate.
+
+    Returns:
+        source_prompt, target_prompt, patched_layer,
+        patched_output, baseline_output, disruption_score
+    """
+```
+
+---
+
+### Group 6 -- Generation & Prediction
+
+#### `generate_text`
+
+```python
+@mcp.tool()
+async def generate_text(
+    prompt: str,
+    max_new_tokens: int = 100,
+    temperature: float = 0.0,
+) -> dict:
+    """
+    Generate text from the loaded model.
+
+    Uses greedy decoding when temperature is 0, otherwise samples.
+    This is the basic "what does the model say?" tool -- essential for
+    seeing actual model outputs before and after interpretability work.
+
+    Args:
+        prompt:         Input text.
+        max_new_tokens: Maximum tokens to generate (default: 100).
+        temperature:    Sampling temperature. 0 = greedy (default).
+
+    Returns:
+        prompt, output, num_tokens, temperature, max_new_tokens
+    """
+```
+
+#### `predict_next_token`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def predict_next_token(
+    prompt: str,
+    top_k: int = 10,
+) -> dict:
+    """
+    Get the model's top-k next-token predictions with probabilities.
+
+    Shows what the model thinks comes next without generating text.
+    Useful for understanding model confidence and comparing how
+    different prompts affect the prediction distribution.
+
+    Args:
+        prompt: Input text.
+        top_k:  Number of top predictions to return (default: 10).
+
+    Returns:
+        prompt, num_input_tokens,
+        predictions: [{token, token_id, probability, log_probability}]
+    """
+```
+
+#### `tokenize`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def tokenize(
+    text: str,
+) -> dict:
+    """
+    Show how text is tokenized by the loaded model's tokenizer.
+
+    Essential for understanding attention patterns (which token is being
+    attended to) and debugging multi-token words. Returns token IDs,
+    decoded text for each token, and positions.
+
+    Args:
+        text: Input text to tokenize.
+
+    Returns:
+        text, num_tokens,
+        tokens: [{position, token_id, token_text}],
+        token_ids
+    """
+```
+
+#### `logit_lens`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def logit_lens(
+    prompt: str,
+    layers: list[int] | None = None,
+    top_k: int = 5,
+    token_position: int = -1,
+) -> dict:
+    """
+    Apply the "logit lens" technique: project hidden states from each
+    layer back to vocabulary space to see how the model's prediction
+    evolves through its depth.
+
+    Shows what the model would predict if computation stopped at each
+    layer. Critical for understanding when specific knowledge emerges
+    (e.g., "at which layer does the model start predicting the correct
+    translation token?").
+
+    Args:
+        prompt:         Input text.
+        layers:         Layer indices to analyze. None = sample ~10 layers.
+        top_k:          Number of top predictions per layer (default: 5).
+        token_position: Which token to analyze (-1 = last, default).
+
+    Returns:
+        prompt, token_position, token_text, num_layers_analyzed,
+        predictions: [{layer, top_tokens, top_probabilities, top_token_ids}],
+        summary: {final_prediction, emergence_layer, total_layers}
+    """
+```
+
+Uses `ModelHooks.get_layer_logits()` to project each layer's hidden
+state through the model's unembedding matrix. The `summary` field
+reports where the final-layer prediction first emerges.
+
+---
+
+### Group 7 -- Model Comparison
+
+#### `load_comparison_model`
+
+```python
+@mcp.tool()
+async def load_comparison_model(
+    model_id: str,
+    dtype: str = "bfloat16",
+) -> dict:
+    """
+    Load a second model for two-model comparison analysis.
+    Models must share the same architecture (num_layers, hidden_dim).
+
+    Returns:
+        model_id, family, architecture, num_layers, hidden_dim,
+        num_attention_heads, parameter_count, status
+    """
+```
+
+#### `compare_weights`
+
+```python
+@mcp.tool(read_only_hint=True)
+async def compare_weights(
+    layers: list[int] | None = None,
+) -> dict:
+    """
+    Compare weight matrices between primary and comparison models.
+    Returns per-layer, per-component Frobenius norm and cosine similarity.
+    No inference needed -- cheapest comparison operation.
+
+    Returns:
+        primary_model, comparison_model, num_layers_compared,
+        divergences, summary
+    """
+```
+
+#### `compare_representations`
+
+```python
+@mcp.tool(read_only_hint=True)
+async def compare_representations(
+    prompts: list[str],
+    layers: list[int] | None = None,
+    token_position: int = -1,
+) -> dict:
+    """
+    Compare hidden-state activations between primary and comparison
+    models for the same prompts. Shows where representations diverge.
+
+    Returns:
+        primary_model, comparison_model, num_prompts,
+        num_layers_compared, divergences, layer_averages
+    """
+```
+
+#### `compare_attention`
+
+```python
+@mcp.tool(read_only_hint=True)
+async def compare_attention(
+    prompt: str,
+    layers: list[int] | None = None,
+) -> dict:
+    """
+    Compare attention patterns between primary and comparison models.
+    Returns per-head Jensen-Shannon divergence and cosine similarity.
+
+    Returns:
+        primary_model, comparison_model, prompt,
+        num_layers_compared, divergences, top_divergent_heads
+    """
+```
+
+#### `compare_generations`
+
+```python
+@mcp.tool()
+async def compare_generations(
+    prompt: str,
+    max_new_tokens: int = 100,
+    temperature: float = 0.0,
+) -> dict:
+    """
+    Generate text from both models using the same prompt and compare
+    the outputs side-by-side.
+
+    Essential for seeing *what actually changes* in model output after
+    fine-tuning, before diving into internal representations.
+
+    Args:
+        prompt:         Input text.
+        max_new_tokens: Maximum tokens to generate (default: 100).
+        temperature:    Sampling temperature. 0 = greedy (default).
+
+    Returns:
+        prompt, primary_model, comparison_model,
+        primary_output, comparison_output,
+        primary_tokens, comparison_tokens
+    """
+```
+
+#### `unload_comparison_model`
+
+```python
+@mcp.tool()
+async def unload_comparison_model() -> dict:
+    """
+    Unload the comparison model and free VRAM.
+
+    Returns:
+        model_id, status
+    """
+```
+
+---
+
+### Group 8 -- Resources
+
+```python
+@mcp.resource("model://info", mime_type="application/json")
+async def model_info_resource() -> dict:
+    """Current model metadata."""
+
+@mcp.resource("probes://registry", mime_type="application/json")
+async def probes_resource() -> dict:
+    """All trained probes and their accuracy metrics."""
+
+@mcp.resource("vectors://registry", mime_type="application/json")
+async def vectors_resource() -> dict:
+    """All computed steering vectors."""
+
+@mcp.resource("comparisons://state", mime_type="application/json")
+def comparison_state_resource() -> dict:
+    """Current comparison model state."""
+```
+
+---
+
+## State Management
+
+Four in-memory singletons, each with a `threading.Lock`:
+
+| Singleton | Contents | Thread-Safe |
+|-----------|----------|-------------|
+| `ModelState` | MLX model, tokenizer, config, family info | Yes |
+| `ProbeRegistry` | `{name: (sklearn_model, ProbeMetadata)}` | Yes |
+| `SteeringVectorRegistry` | `{name: (np.ndarray, VectorMetadata)}` | Yes |
+| `ComparisonState` | Second MLX model for comparison | Yes |
+
+All state is lost when the server process restarts. Persistence is a
+v1.0 concern.
+
+---
+
+## Error Handling
+
+Every tool returns a consistent error envelope on failure:
+
+```python
+{
+    "error": True,
+    "error_type": "ModelNotLoaded",
+    "message": "Call load_model() first.",
+    "tool": "extract_activations"
+}
+```
+
+Error types are defined in `errors.py` as a `ToolError` enum:
+
+- `ModelNotLoaded` -- no model loaded
+- `LayerOutOfRange` -- requested layer exceeds model depth
+- `ProbeNotFound` -- named probe does not exist
+- `VectorNotFound` -- named steering vector does not exist
+- `InvalidInput` -- bad parameters
+- `ExtractionFailed` -- activation extraction error
+- `TrainingFailed` -- probe training error
+- `EvaluationFailed` -- probe evaluation error
+- `GenerationFailed` -- text generation error
+- `AblationFailed` -- ablation or patching error
+- `ComparisonFailed` -- model comparison error
+- `ComparisonIncompatible` -- models have different architecture
+- `LoadFailed` -- model loading error
+
+---
+
+## Claude Desktop Configuration
+
+```json
+{
+  "mcpServers": {
+    "lazarus": {
+      "command": "uv",
+      "args": ["run", "chuk-mcp-lazarus", "stdio"],
+      "cwd": "/path/to/chuk-mcp-lazarus"
+    }
+  }
+}
+```
+
+HTTP mode for development:
+
+```bash
+uv run chuk-mcp-lazarus http --port 8765
+```
+
+---
+
+## Intended Claude Workflow
+
+Given the goal: *"Discover where TranslateGemma 4B switches from
+source to target language, then redirect a French translation to
+German."*
+
+```
+ 1. load_model("google/gemma-3-4b-it")
+
+ 2. get_model_info()
+    -> num_layers = 34
+
+ 3. tokenize("Translate to French: The weather is beautiful today.")
+    -> see token boundaries, multi-token words
+
+ 4. generate_text("Translate to French: The weather is beautiful today.")
+    -> baseline output before any interpretability work
+
+ 5. extract_activations("Bonjour", layers=[0, 8, 16, 24, 33])
+    -> sanity check: activations are reasonable
+
+ 6. compare_activations(
+        prompts=["Hello", "Bonjour", "Hola"],
+        layer=0
+    )
+    -> at layer 0: representations are language-distinct
+
+ 7. compare_activations(
+        prompts=["Hello", "Bonjour", "Hola"],
+        layer=33
+    )
+    -> at layer 33: representations converge
+
+ 8. scan_probe_across_layers(
+        probe_name_prefix="source_lang",
+        layers=list(range(34)),
+        examples=[
+            {"prompt": "Translate to French: Hello", "label": "english"},
+            {"prompt": "Translate to French: Goodbye", "label": "english"},
+            {"prompt": "Traduire en anglais: Bonjour", "label": "french"},
+            ...  # 20+ examples per language
+        ]
+    )
+    -> accuracy_by_layer + crossover_layer
+
+ 9. evaluate_probe(
+        probe_name="source_lang_L{crossover}",
+        examples=[new held-out set]
+    )
+    -> confirm crossover generalises
+
+10. logit_lens(
+        prompt="Translate to French: The weather is beautiful today.",
+        layers=list(range(34))
+    )
+    -> see at which layer the translation token first appears
+
+11. compute_steering_vector(
+        vector_name="english_to_german",
+        layer=crossover_layer,
+        positive_prompts=["Der Hund", "Die Katze", "Das Haus", ...],
+        negative_prompts=["The dog", "The cat", "The house", ...]
+    )
+
+12. steer_and_generate(
+        prompt="Translate to French: The weather is beautiful today.",
+        vector_name="english_to_german",
+        alpha=20.0
+    )
+    -> steered_output: German
+    -> baseline_output: French
+
+13. ablate_layers(
+        prompt="Translate to French: The weather is beautiful today.",
+        layers=[crossover_layer]
+    )
+    -> confirm the crossover layer is causally necessary
+```
+
+---
+
+## Version
+
+`0.4.0` -- Phase 1 complete + model comparison + generation: 23 tools, 4 resources, end-to-end demos. Apache 2.0.

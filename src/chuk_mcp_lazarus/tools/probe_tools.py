@@ -1,0 +1,627 @@
+"""
+Probe tools: train_probe, evaluate_probe, scan_probe_across_layers, list_probes.
+
+Trains sklearn classifiers on hidden-state activations to identify which
+layers encode specific features (e.g. source language identity). The
+scan tool caches activations so each example runs a single forward pass
+through all layers, avoiding redundant computation.
+"""
+
+from __future__ import annotations
+
+import datetime
+import logging
+from typing import Any
+
+import mlx.core as mx
+import numpy as np
+from pydantic import BaseModel, Field
+
+from .._serialize import hidden_state_to_list
+from ..errors import ToolError, make_error
+from ..model_state import ModelState
+from ..probe_store import ProbeMetadata, ProbeRegistry, ProbeType
+from ..server import mcp
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Result models
+# ---------------------------------------------------------------------------
+
+class TrainProbeResult(BaseModel):
+    """Result from train_probe."""
+
+    probe_name: str
+    layer: int
+    probe_type: ProbeType
+    num_examples: int
+    classes: list[str]
+    train_accuracy: float
+    val_accuracy: float
+    coefficients_norm: float | None = None
+
+
+class EvaluateProbeResult(BaseModel):
+    """Result from evaluate_probe."""
+
+    probe_name: str
+    layer: int
+    accuracy: float
+    per_class_accuracy: dict[str, float]
+    confusion_matrix: list[list[int]]
+    predictions: list[dict[str, Any]]
+
+
+class LayerAccuracy(BaseModel):
+    """Per-layer accuracy in a scan."""
+
+    layer: int
+    train_accuracy: float
+    val_accuracy: float
+
+
+class ScanProbeResult(BaseModel):
+    """Result from scan_probe_across_layers."""
+
+    probe_name_prefix: str
+    layers_scanned: list[int]
+    accuracy_by_layer: list[LayerAccuracy]
+    peak_layer: int
+    peak_val_accuracy: float
+    crossover_layer: int | None = Field(
+        None, description="Layer where accuracy first exceeds 0.8, if any."
+    )
+    interpretation: str
+
+
+class ListProbesResult(BaseModel):
+    """Result from list_probes."""
+
+    probes: list[dict[str, Any]]
+    count: int
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _extract_activation_at_layer(
+    model: Any,
+    config: Any,
+    tokenizer: Any,
+    prompt: str,
+    layer: int,
+    token_position: int = -1,
+) -> list[float]:
+    """Extract a single activation vector for one prompt at one layer."""
+    from chuk_lazarus.introspection.hooks import CaptureConfig, ModelHooks
+
+    input_ids = mx.array(tokenizer.encode(prompt, add_special_tokens=True))
+    hooks = ModelHooks(model, model_config=config)
+    hooks.configure(CaptureConfig(layers=[layer], capture_hidden_states=True))
+    hooks.forward(input_ids)
+    mx.eval(hooks.state.hidden_states)
+    return hidden_state_to_list(hooks.state.hidden_states[layer], position=token_position)
+
+
+def _extract_activations_all_layers(
+    model: Any,
+    config: Any,
+    tokenizer: Any,
+    prompt: str,
+    layers: list[int],
+    token_position: int = -1,
+) -> dict[int, list[float]]:
+    """Extract activations at multiple layers from a single forward pass."""
+    from chuk_lazarus.introspection.hooks import CaptureConfig, ModelHooks
+
+    input_ids = mx.array(tokenizer.encode(prompt, add_special_tokens=True))
+    hooks = ModelHooks(model, model_config=config)
+    hooks.configure(CaptureConfig(layers=layers, capture_hidden_states=True))
+    hooks.forward(input_ids)
+    mx.eval(hooks.state.hidden_states)
+
+    result: dict[int, list[float]] = {}
+    for layer in layers:
+        if layer in hooks.state.hidden_states:
+            result[layer] = hidden_state_to_list(
+                hooks.state.hidden_states[layer], position=token_position
+            )
+    return result
+
+
+def _train_sklearn_probe(
+    X: np.ndarray,
+    y: np.ndarray,
+    probe_type: ProbeType,
+    random_seed: int = 42,
+) -> tuple[Any, float, float]:
+    """Train a probe and return (model, train_accuracy, val_accuracy).
+
+    Uses cross-validation for val_accuracy. Falls back to train accuracy
+    when the dataset is too small for stratified CV.
+    """
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.model_selection import cross_val_score
+    from sklearn.neural_network import MLPClassifier
+
+    if probe_type == ProbeType.LINEAR:
+        clf = LogisticRegression(
+            max_iter=1000, random_state=random_seed, C=1.0
+        )
+    else:
+        clf = MLPClassifier(
+            hidden_layer_sizes=(64,),
+            max_iter=500,
+            random_state=random_seed,
+        )
+
+    # Cross-validation for val accuracy
+    unique_labels = np.unique(y)
+    min_class_count = min(np.sum(y == label) for label in unique_labels)
+    n_folds = min(5, min_class_count, len(y))
+
+    if n_folds >= 2:
+        cv_scores = cross_val_score(clf, X, y, cv=n_folds)
+        val_accuracy = float(np.mean(cv_scores))
+    else:
+        val_accuracy = 0.0
+
+    # Fit on full data for the stored model
+    clf.fit(X, y)
+    train_accuracy = float(clf.score(X, y))
+
+    # If CV wasn't possible, use train accuracy as fallback
+    if val_accuracy == 0.0:
+        val_accuracy = train_accuracy
+
+    return clf, train_accuracy, val_accuracy
+
+
+def _coefficients_norm(clf: Any) -> float | None:
+    """Extract L2 norm of probe coefficients, if available."""
+    if hasattr(clf, "coef_"):
+        return float(np.linalg.norm(clf.coef_))
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+async def train_probe(
+    probe_name: str,
+    layer: int,
+    examples: list[dict],
+    probe_type: str = "linear",
+    token_position: int = -1,
+) -> dict:
+    """
+    Train a probe classifier on activations at the specified layer.
+
+    Each example must have a "prompt" and "label" field. The probe
+    learns to classify which label a prompt belongs to based on its
+    hidden-state activation at the given layer.
+
+    Args:
+        probe_name:     Unique name for this probe.
+        layer:          Layer to extract activations from.
+        examples:       [{"prompt": str, "label": str}, ...]
+        probe_type:     "linear" (LogisticRegression) or "mlp".
+        token_position: Token position (default: last).
+    """
+    state = ModelState.get()
+    if not state.is_loaded:
+        return make_error(
+            ToolError.MODEL_NOT_LOADED,
+            "Call load_model() first.",
+            "train_probe",
+        )
+
+    # Validate probe_type
+    try:
+        ptype = ProbeType(probe_type)
+    except ValueError:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            f"Invalid probe_type '{probe_type}'. Use 'linear' or 'mlp'.",
+            "train_probe",
+        )
+
+    # Validate layer
+    num_layers = state.metadata.num_layers
+    if layer < 0 or layer >= num_layers:
+        return make_error(
+            ToolError.LAYER_OUT_OF_RANGE,
+            f"Layer {layer} out of range [0, {num_layers - 1}].",
+            "train_probe",
+        )
+
+    # Validate examples
+    if len(examples) < 4:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            f"Need at least 4 examples, got {len(examples)}.",
+            "train_probe",
+        )
+
+    for i, ex in enumerate(examples):
+        if "prompt" not in ex or "label" not in ex:
+            return make_error(
+                ToolError.INVALID_INPUT,
+                f"Example {i} must have 'prompt' and 'label' keys.",
+                "train_probe",
+            )
+
+    try:
+        # Extract activations
+        labels_raw = [ex["label"] for ex in examples]
+        classes = sorted(set(labels_raw))
+        if len(classes) < 2:
+            return make_error(
+                ToolError.INVALID_INPUT,
+                "Need at least 2 distinct labels.",
+                "train_probe",
+            )
+
+        label_to_idx = {label: idx for idx, label in enumerate(classes)}
+        y = np.array([label_to_idx[label] for label in labels_raw])
+
+        X_list: list[list[float]] = []
+        for ex in examples:
+            vec = _extract_activation_at_layer(
+                state.model, state.config, state.tokenizer,
+                ex["prompt"], layer, token_position,
+            )
+            X_list.append(vec)
+        X = np.array(X_list, dtype=np.float32)
+
+        # Train
+        clf, train_acc, val_acc = _train_sklearn_probe(X, y, ptype)
+        coef_norm = _coefficients_norm(clf)
+
+        # Store
+        metadata = ProbeMetadata(
+            name=probe_name,
+            layer=layer,
+            probe_type=ptype,
+            classes=classes,
+            num_examples=len(examples),
+            train_accuracy=train_acc,
+            val_accuracy=val_acc,
+            coefficients_norm=coef_norm,
+            trained_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        )
+        ProbeRegistry.get().store(probe_name, clf, metadata)
+
+        result = TrainProbeResult(
+            probe_name=probe_name,
+            layer=layer,
+            probe_type=ptype,
+            num_examples=len(examples),
+            classes=classes,
+            train_accuracy=train_acc,
+            val_accuracy=val_acc,
+            coefficients_norm=coef_norm,
+        )
+        return result.model_dump()
+
+    except Exception as e:
+        logger.exception("train_probe failed")
+        return make_error(ToolError.TRAINING_FAILED, str(e), "train_probe")
+
+
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def evaluate_probe(
+    probe_name: str,
+    examples: list[dict],
+    token_position: int = -1,
+) -> dict:
+    """
+    Evaluate a stored probe on new (held-out) examples.
+
+    Args:
+        probe_name:     Name of a trained probe.
+        examples:       [{"prompt": str, "label": str}, ...]
+        token_position: Token position (default: last).
+
+    Returns accuracy, per-class accuracy, confusion matrix, and
+    per-example predictions with confidence scores.
+    """
+    state = ModelState.get()
+    if not state.is_loaded:
+        return make_error(
+            ToolError.MODEL_NOT_LOADED,
+            "Call load_model() first.",
+            "evaluate_probe",
+        )
+
+    registry = ProbeRegistry.get()
+    entry = registry.fetch(probe_name)
+    if entry is None:
+        return make_error(
+            ToolError.PROBE_NOT_FOUND,
+            f"Probe '{probe_name}' not found. Use list_probes() to see available probes.",
+            "evaluate_probe",
+        )
+
+    clf, meta = entry
+
+    # Validate examples
+    if not examples:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            "Need at least 1 example.",
+            "evaluate_probe",
+        )
+
+    for i, ex in enumerate(examples):
+        if "prompt" not in ex or "label" not in ex:
+            return make_error(
+                ToolError.INVALID_INPUT,
+                f"Example {i} must have 'prompt' and 'label' keys.",
+                "evaluate_probe",
+            )
+
+    try:
+        labels_raw = [ex["label"] for ex in examples]
+        class_to_idx = {label: idx for idx, label in enumerate(meta.classes)}
+
+        # Extract activations
+        X_list: list[list[float]] = []
+        for ex in examples:
+            vec = _extract_activation_at_layer(
+                state.model, state.config, state.tokenizer,
+                ex["prompt"], meta.layer, token_position,
+            )
+            X_list.append(vec)
+        X = np.array(X_list, dtype=np.float32)
+
+        # Predict
+        y_pred_idx = clf.predict(X)
+        y_proba = clf.predict_proba(X) if hasattr(clf, "predict_proba") else None
+
+        # Build predictions list
+        predictions: list[dict[str, Any]] = []
+        correct = 0
+        for i, ex in enumerate(examples):
+            predicted_label = meta.classes[int(y_pred_idx[i])]
+            confidence = float(y_proba[i].max()) if y_proba is not None else None
+            is_correct = predicted_label == ex["label"]
+            if is_correct:
+                correct += 1
+            pred = {
+                "prompt": ex["prompt"],
+                "true_label": ex["label"],
+                "predicted_label": predicted_label,
+                "correct": is_correct,
+            }
+            if confidence is not None:
+                pred["confidence"] = round(confidence, 4)
+            predictions.append(pred)
+
+        accuracy = correct / len(examples)
+
+        # Per-class accuracy
+        per_class: dict[str, float] = {}
+        for cls in meta.classes:
+            cls_examples = [p for p in predictions if p["true_label"] == cls]
+            if cls_examples:
+                per_class[cls] = sum(1 for p in cls_examples if p["correct"]) / len(cls_examples)
+            else:
+                per_class[cls] = 0.0
+
+        # Confusion matrix
+        n_classes = len(meta.classes)
+        confusion = [[0] * n_classes for _ in range(n_classes)]
+        for pred in predictions:
+            true_idx = class_to_idx.get(pred["true_label"])
+            pred_idx = class_to_idx.get(pred["predicted_label"])
+            if true_idx is not None and pred_idx is not None:
+                confusion[true_idx][pred_idx] += 1
+
+        result = EvaluateProbeResult(
+            probe_name=probe_name,
+            layer=meta.layer,
+            accuracy=accuracy,
+            per_class_accuracy=per_class,
+            confusion_matrix=confusion,
+            predictions=predictions,
+        )
+        return result.model_dump()
+
+    except Exception as e:
+        logger.exception("evaluate_probe failed")
+        return make_error(ToolError.EVALUATION_FAILED, str(e), "evaluate_probe")
+
+
+@mcp.tool()
+async def scan_probe_across_layers(
+    probe_name_prefix: str,
+    layers: list[int],
+    examples: list[dict],
+    probe_type: str = "linear",
+    token_position: int = -1,
+) -> dict:
+    """
+    Train and evaluate a probe at every specified layer in one call.
+    Primary tool for finding the crossover layer in language
+    transition experiments.
+
+    Caches activations: each example runs one forward pass through all
+    layers, then probes are trained from the cache. For a 34-layer
+    model with 40 examples this avoids 34x redundant forward passes.
+
+    Creates probes named "{probe_name_prefix}_L{layer}" for each layer.
+
+    Args:
+        probe_name_prefix: Base name; layer suffix appended.
+        layers:            Layers to scan.
+        examples:          [{"prompt": str, "label": str}, ...]
+        probe_type:        "linear" or "mlp".
+        token_position:    Token position (default: last).
+    """
+    state = ModelState.get()
+    if not state.is_loaded:
+        return make_error(
+            ToolError.MODEL_NOT_LOADED,
+            "Call load_model() first.",
+            "scan_probe_across_layers",
+        )
+
+    # Validate probe_type
+    try:
+        ptype = ProbeType(probe_type)
+    except ValueError:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            f"Invalid probe_type '{probe_type}'. Use 'linear' or 'mlp'.",
+            "scan_probe_across_layers",
+        )
+
+    # Validate layers
+    num_layers = state.metadata.num_layers
+    out_of_range = [l for l in layers if l < 0 or l >= num_layers]
+    if out_of_range:
+        return make_error(
+            ToolError.LAYER_OUT_OF_RANGE,
+            f"Layers {out_of_range} out of range [0, {num_layers - 1}].",
+            "scan_probe_across_layers",
+        )
+
+    # Validate examples
+    if len(examples) < 4:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            f"Need at least 4 examples, got {len(examples)}.",
+            "scan_probe_across_layers",
+        )
+
+    for i, ex in enumerate(examples):
+        if "prompt" not in ex or "label" not in ex:
+            return make_error(
+                ToolError.INVALID_INPUT,
+                f"Example {i} must have 'prompt' and 'label' keys.",
+                "scan_probe_across_layers",
+            )
+
+    labels_raw = [ex["label"] for ex in examples]
+    classes = sorted(set(labels_raw))
+    if len(classes) < 2:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            "Need at least 2 distinct labels.",
+            "scan_probe_across_layers",
+        )
+
+    try:
+        label_to_idx = {label: idx for idx, label in enumerate(classes)}
+        y = np.array([label_to_idx[label] for label in labels_raw])
+
+        # Cache activations: one forward pass per example captures all layers
+        # cache[layer_idx] = list of activation vectors
+        cache: dict[int, list[list[float]]] = {l: [] for l in layers}
+
+        logger.info(
+            "Scanning %d layers with %d examples (cached extraction)...",
+            len(layers), len(examples),
+        )
+        for i, ex in enumerate(examples):
+            activations = _extract_activations_all_layers(
+                state.model, state.config, state.tokenizer,
+                ex["prompt"], layers, token_position,
+            )
+            for l in layers:
+                cache[l].append(activations[l])
+
+        # Train probe at each layer
+        registry = ProbeRegistry.get()
+        layer_results: list[LayerAccuracy] = []
+        best_layer = layers[0]
+        best_val_acc = 0.0
+        timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+        for l in layers:
+            X = np.array(cache[l], dtype=np.float32)
+            clf, train_acc, val_acc = _train_sklearn_probe(X, y, ptype)
+            coef_norm = _coefficients_norm(clf)
+
+            layer_results.append(LayerAccuracy(
+                layer=l,
+                train_accuracy=round(train_acc, 4),
+                val_accuracy=round(val_acc, 4),
+            ))
+
+            if val_acc > best_val_acc:
+                best_val_acc = val_acc
+                best_layer = l
+
+            # Store each probe
+            probe_name = f"{probe_name_prefix}_L{l}"
+            meta = ProbeMetadata(
+                name=probe_name,
+                layer=l,
+                probe_type=ptype,
+                classes=classes,
+                num_examples=len(examples),
+                train_accuracy=train_acc,
+                val_accuracy=val_acc,
+                coefficients_norm=coef_norm,
+                trained_at=timestamp,
+            )
+            registry.store(probe_name, clf, meta)
+
+        # Find crossover layer (first layer where val_accuracy > 0.8)
+        crossover = None
+        for lr in layer_results:
+            if lr.val_accuracy > 0.8:
+                crossover = lr.layer
+                break
+
+        # Build interpretation
+        if crossover is not None:
+            interpretation = (
+                f"Feature becomes linearly decodable at layer {crossover} "
+                f"(val_accuracy={next(lr.val_accuracy for lr in layer_results if lr.layer == crossover):.2%}). "
+                f"Peak accuracy at layer {best_layer} ({best_val_acc:.2%})."
+            )
+        else:
+            interpretation = (
+                f"Feature not strongly decodable (peak val_accuracy={best_val_acc:.2%} "
+                f"at layer {best_layer}). Consider adding more examples or trying different features."
+            )
+
+        result = ScanProbeResult(
+            probe_name_prefix=probe_name_prefix,
+            layers_scanned=layers,
+            accuracy_by_layer=layer_results,
+            peak_layer=best_layer,
+            peak_val_accuracy=round(best_val_acc, 4),
+            crossover_layer=crossover,
+            interpretation=interpretation,
+        )
+        return result.model_dump()
+
+    except Exception as e:
+        logger.exception("scan_probe_across_layers failed")
+        return make_error(ToolError.TRAINING_FAILED, str(e), "scan_probe_across_layers")
+
+
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def list_probes() -> dict:
+    """
+    List all probes in memory.
+
+    Returns summary metadata for every trained probe, including
+    name, layer, classes, probe_type, val_accuracy, and trained_at.
+    """
+    try:
+        registry = ProbeRegistry.get()
+        dump = registry.dump()
+        return dump.model_dump()
+    except Exception as e:
+        logger.exception("list_probes failed")
+        return make_error(ToolError.EXTRACTION_FAILED, str(e), "list_probes")

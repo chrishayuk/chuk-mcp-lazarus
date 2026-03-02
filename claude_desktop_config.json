@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "lazarus": {
+      "command": "uv",
+      "args": ["run", "chuk-mcp-lazarus", "stdio"],
+      "cwd": "/path/to/chuk-mcp-lazarus"
+    }
+  }
+}

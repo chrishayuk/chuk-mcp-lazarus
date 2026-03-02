@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chuk-mcp-lazarus"
+version = "0.5.0"
+description = "Mechanistic interpretability MCP server wrapping chuk-lazarus"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [
+    {name = "Christopher Hay"}
+]
+dependencies = [
+    "chuk-mcp-server>=0.25",
+    "chuk-lazarus>=0.4",
+    "scikit-learn>=1.4",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+]
+
+[project.scripts]
+chuk-mcp-lazarus = "chuk_mcp_lazarus.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["chuk_mcp_lazarus*"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+asyncio_mode = "auto"
+pythonpath = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
