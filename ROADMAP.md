@@ -161,11 +161,14 @@ See what attends to what -- understand information routing.
 | `attention_pattern` | Extract full attention matrix at a layer (which tokens attend to which) | Manual Q*K + RoPE via `_compare._compute_attention_weights()` |
 | `attention_heads` | Per-head entropy and focus analysis -- find which heads are doing the work | Entropy from attention weights |
 
-### Step 10: Causal Tracing ⭐ HIGH PRIORITY
+### Step 10: Causal Tracing ✅
 
 Trace causal circuits -- identify which components are responsible
-for specific predictions. **This is the single most important missing
-capability.** Probes show correlation; causal tracing shows causation.
+for specific predictions. Probes show correlation; causal tracing
+shows causation.
+
+> **Implemented in v0.6.0.** Both tools wrap `CounterfactualIntervention`
+> from `introspection/interventions.py`.
 
 | Tool | Purpose | Backed by |
 |------|---------|-----------|
@@ -200,20 +203,22 @@ Metacognition Probing, Universal Circuits, Safety Patching.
 PROBE_WEIGHTS, CONTRASTIVE, PCA. Returns `ExtractedDirection` with
 separation score (Cohen's d), classification accuracy, mean projections.
 
-### Step 12: Residual Stream Dynamics
+### Step 12: Residual Stream Dynamics ✅
 
 Understand how information flows through the residual stream.
 
+> **Implemented in v0.7.0.** `residual_decomposition` manually unrolls the
+> forward pass through `TransformerBlock` sub-components to capture attention
+> and FFN outputs separately. `layer_clustering` uses `ModelHooks` for hidden
+> state capture with cosine similarity matrices.
+
 | Tool | Purpose | Backed by |
 |------|---------|-----------|
-| `residual_decomposition` | Separate attention vs MLP contribution to the residual stream per layer | `ModelAnalyzer.compute_residual_decomposition()` |
-| `layer_clustering` | Cluster prompts by representation similarity at each layer, measure separability | `LayerAnalyzer.analyze_representations()` |
+| `residual_decomposition` | Separate attention vs MLP contribution to the residual stream per layer | Manual sub-component forward pass via `ModelHooks` |
+| `layer_clustering` | Cluster prompts by representation similarity at each layer, measure separability | `ModelHooks` + `cosine_similarity_matrix` |
 
 **Unlocks:** Automated Circuit Discovery, Computational Stratigraphy,
 Universal Circuits.
-
-**Backend:** `ModelAnalyzer` in `introspection/analyzer/core.py` (async-native).
-`LayerAnalyzer` in `introspection/layer_analysis.py` (548 lines).
 
 ### Step 13: Knowledge & Confidence
 
@@ -523,9 +528,10 @@ If chuk-lazarus training capabilities are exposed:
 | 0.4.0 | Phase 1 Step 6c (generation, prediction, tokenize, logit lens, compare_generations) |
 | 0.5.0 | Phase 1b Steps 8--9 (track_token, attention_pattern, attention_heads) |
 | 0.6.0 | Phase 1b Step 10 (causal tracing: trace_token, full_causal_trace) |
-| 0.7.0 | Phase 1b Step 11 (direction extraction: extract_direction) |
-| 0.8.0 | Phase 1b Steps 7, 12 (neurons, residual decomposition, layer clustering) |
-| 0.9.0 | Phase 1b Steps 13--14 (confidence, metacognition, external memory) |
+| 0.7.0 | Phase 1b Step 12 (residual stream: residual_decomposition, layer_clustering) |
+| 0.8.0 | Phase 1b Step 11 (direction extraction: extract_direction) |
+| 0.9.0 | Phase 1b Step 7 (neurons: discover_neurons, analyze_neuron) |
+| 0.10.0 | Phase 1b Steps 13--14 (confidence, metacognition, external memory) |
 | 0.10.0 | Phase 2 (tokenizer server) |
 | 0.11.0 | Phase 3 (introspect server) |
 | 0.12.0 | Phase 4 core (MoE: routing, ablation, identification) |
@@ -538,7 +544,7 @@ If chuk-lazarus training capabilities are exposed:
 
 | Phase | Server | Tools |
 |-------|--------|-------|
-| 1 | lazarus (core) | 26 |
+| 1 | lazarus (core) | 30 |
 | 1b | lazarus (extended) | ~13 |
 | 2 | tokenizer | 11 |
 | 3 | introspect | 7 |

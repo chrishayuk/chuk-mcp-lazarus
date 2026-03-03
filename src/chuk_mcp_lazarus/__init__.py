@@ -11,5 +11,5 @@ from .server import mcp  # noqa: F401
 from .tools import *  # noqa: F401, F403
 from . import resources  # noqa: F401
 
-__version__ = "0.5.0"
+__version__ = "0.8.0"
 __all__ = ["mcp"]

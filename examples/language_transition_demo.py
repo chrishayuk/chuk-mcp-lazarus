@@ -2,7 +2,7 @@
 """
 Language transition demo: the flagship chuk-mcp-lazarus experiment.
 
-This script follows a 14-step Claude workflow:
+This script follows a 15-step Claude workflow:
 1.  Load model
 2.  Inspect architecture
 3.  Tokenize a multilingual prompt to see token structure
@@ -17,6 +17,7 @@ This script follows a 14-step Claude workflow:
 12. Compute a steering vector at the crossover layer
 13. Steer generation: push output toward a different language
 14. Iterate with different alpha values
+15. Causal tracing: prove which layers are necessary
 
 Usage:
     python examples/language_transition_demo.py
@@ -89,6 +90,9 @@ async def main(model_id: str) -> int:
         tokenize,
         logit_lens,
         track_token,
+    )
+    from chuk_mcp_lazarus.tools.causal_tools import (
+        trace_token as causal_trace_token,
     )
 
     t0 = time.time()
@@ -373,13 +377,39 @@ async def main(model_id: str) -> int:
             print(f"  alpha={alpha:>5.1f}: [error] {result.get('message', '')[:60]}")
 
     # ==================================================================
+    # Step 15: Causal tracing -- prove which layers are necessary
+    # ==================================================================
+    print(f"\n{'=' * 60}")
+    print("  Step 15: Causal tracing")
+    print(f"{'=' * 60}")
+
+    result = await causal_trace_token(
+        prompt="Translate to French: The weather is beautiful today.",
+        token=track_target,
+        layers=scan_layers,
+        effect_threshold=0.05,
+    )
+    pp("15. trace_token (causal tracing)", result)
+    if not result.get("error"):
+        print(f"\n  Target: {result['target_token']!r}")
+        print(f"  Baseline prob: {result['baseline_prob']:.4f}")
+        print(f"  Peak layer: {result['peak_layer']} (effect={result['peak_effect']:.4f})")
+        print(f"  Critical layers: {result['critical_layers']}")
+        print(f"\n  Causal effect curve (ablation impact):")
+        for entry in result["layer_effects"]:
+            bar_len = int(abs(entry["effect"]) * 40)
+            bar = "+" * bar_len if entry["effect"] > 0 else "-" * bar_len
+            marker = " *" if entry["layer"] in result["critical_layers"] else ""
+            print(f"    Layer {entry['layer']:>3}: {entry['effect']:+.4f} {bar}{marker}")
+
+    # ==================================================================
     # Summary
     # ==================================================================
     elapsed = time.time() - t0
     print(f"\n{'=' * 60}")
     print(f"  LANGUAGE TRANSITION DEMO COMPLETE")
     print(f"  {len(scan_layers)} layers scanned, crossover at layer {crossover}")
-    print(f"  Completed all 14 steps in {elapsed:.1f}s")
+    print(f"  Completed all 15 steps in {elapsed:.1f}s")
     print(f"{'=' * 60}")
     return 0
 

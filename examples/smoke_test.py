@@ -101,6 +101,15 @@ async def main(model_id: str) -> int:
         attention_pattern,
         attention_heads,
     )
+    from chuk_mcp_lazarus.tools.causal_tools import (
+        trace_token as causal_trace_token,
+        full_causal_trace,
+    )
+    from chuk_mcp_lazarus.tools.residual_tools import (
+        residual_decomposition,
+        layer_clustering,
+        logit_attribution,
+    )
 
     results: list[bool] = []
     t0 = time.time()
@@ -650,6 +659,207 @@ async def main(model_id: str) -> int:
     )
     ok = result.get("error") is True and result.get("error_type") == "LayerOutOfRange"
     print(f"\n  [{'PASS' if ok else 'FAIL'}] patch_activations error envelope (LayerOutOfRange)")
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 33. trace_token (causal tracing)
+    # ------------------------------------------------------------------
+    result = await causal_trace_token(
+        prompt="The capital of France is",
+        token="Paris",
+        layers=test_layers,
+        effect_threshold=0.05,
+    )
+    pp("trace_token (causal)", result)
+    ok = check("trace_token (causal)", result, [
+        "prompt", "target_token", "target_token_id", "baseline_prob",
+        "layer_effects", "critical_layers", "peak_layer", "peak_effect",
+        "effect_threshold",
+    ])
+    if ok:
+        print(f"  Target: {result['target_token']!r} (id={result['target_token_id']})")
+        print(f"  Baseline prob: {result['baseline_prob']:.4f}")
+        print(f"  Peak layer: {result['peak_layer']} (effect={result['peak_effect']:.4f})")
+        print(f"  Critical layers: {result['critical_layers']}")
+        for entry in result["layer_effects"]:
+            bar_len = int(abs(entry["effect"]) * 40)
+            bar = "+" * bar_len if entry["effect"] > 0 else "-" * bar_len
+            print(f"    Layer {entry['layer']:>3}: effect={entry['effect']:+.4f} {bar}")
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 34. trace_token (error case: layer out of range)
+    # ------------------------------------------------------------------
+    result = await causal_trace_token(
+        prompt="test",
+        token="hello",
+        layers=[num_layers + 100],
+    )
+    ok = result.get("error") is True and result.get("error_type") == "LayerOutOfRange"
+    print(f"\n  [{'PASS' if ok else 'FAIL'}] trace_token error envelope (LayerOutOfRange)")
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 35. full_causal_trace
+    # ------------------------------------------------------------------
+    result = await full_causal_trace(
+        prompt="The capital of France is",
+        token="Paris",
+        layers=test_layers,
+    )
+    pp("full_causal_trace", result)
+    ok = check("full_causal_trace", result, [
+        "prompt", "target_token", "tokens", "effects",
+        "critical_positions", "critical_layers",
+        "num_positions", "num_layers_tested",
+    ])
+    if ok:
+        print(f"  Tokens: {result['tokens']}")
+        print(f"  Grid: {result['num_positions']} positions x {result['num_layers_tested']} layers")
+        print(f"  Critical positions: {result['critical_positions']}")
+        print(f"  Critical layers: {result['critical_layers']}")
+        if len(result["effects"]) != result["num_positions"]:
+            print(f"  [{FAIL}] effects rows ({len(result['effects'])}) != num_positions ({result['num_positions']})")
+            ok = False
+        elif result["effects"] and len(result["effects"][0]) != result["num_layers_tested"]:
+            print(f"  [{FAIL}] effects cols ({len(result['effects'][0])}) != num_layers_tested ({result['num_layers_tested']})")
+            ok = False
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 36. full_causal_trace (error case: layer out of range)
+    # ------------------------------------------------------------------
+    result = await full_causal_trace(
+        prompt="test",
+        token="hello",
+        layers=[num_layers + 100],
+    )
+    ok = result.get("error") is True and result.get("error_type") == "LayerOutOfRange"
+    print(f"\n  [{'PASS' if ok else 'FAIL'}] full_causal_trace error envelope (LayerOutOfRange)")
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 37. residual_decomposition
+    # ------------------------------------------------------------------
+    result = await residual_decomposition(
+        prompt="The capital of France is",
+        layers=test_layers,
+        position=-1,
+    )
+    pp("residual_decomposition", result)
+    ok = check("residual_decomposition", result, [
+        "prompt", "token_position", "token_text", "num_tokens",
+        "layers", "summary",
+    ])
+    if ok:
+        print(f"  Layers analyzed: {len(result['layers'])}")
+        for entry in result["layers"]:
+            print(f"    Layer {entry['layer']:>3}: total={entry['total_norm']:.4f} "
+                  f"attn={entry['attention_fraction']:.3f} ffn={entry['ffn_fraction']:.3f} "
+                  f"[{entry['dominant_component']}]")
+        # Verify fractions sum to ~1.0
+        for entry in result["layers"]:
+            frac_sum = entry["attention_fraction"] + entry["ffn_fraction"]
+            if abs(frac_sum - 1.0) > 0.01:
+                print(f"  [FAIL] Layer {entry['layer']} fractions sum to {frac_sum:.4f}, expected ~1.0")
+                ok = False
+        print(f"  Peak: layer {result['summary']['peak_layer']} "
+              f"({result['summary']['peak_component']})")
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 38. residual_decomposition (error case: layer out of range)
+    # ------------------------------------------------------------------
+    result = await residual_decomposition(
+        prompt="test",
+        layers=[num_layers + 100],
+    )
+    ok = result.get("error") is True and result.get("error_type") == "LayerOutOfRange"
+    print(f"\n  [{'PASS' if ok else 'FAIL'}] residual_decomposition error envelope (LayerOutOfRange)")
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 39. layer_clustering
+    # ------------------------------------------------------------------
+    result = await layer_clustering(
+        prompts=["The capital of France is", "La capital de Francia es"],
+        layers=test_layers,
+        position=-1,
+    )
+    pp("layer_clustering", result)
+    ok = check("layer_clustering", result, [
+        "prompts", "token_position", "num_layers_analyzed",
+        "layers", "summary",
+    ])
+    if ok:
+        print(f"  Layers analyzed: {result['num_layers_analyzed']}")
+        for entry in result["layers"]:
+            sim = entry["similarity_matrix"]
+            print(f"    Layer {entry['layer']:>3}: mean_sim={entry['mean_similarity']:.4f} "
+                  f"matrix={len(sim)}x{len(sim[0])}")
+            # Verify matrix is square and right size
+            if len(sim) != 2 or len(sim[0]) != 2:
+                print(f"  [FAIL] Expected 2x2 matrix, got {len(sim)}x{len(sim[0])}")
+                ok = False
+            # Self-similarity should be ~1.0
+            if abs(sim[0][0] - 1.0) > 0.01:
+                print(f"  [FAIL] Self-similarity {sim[0][0]:.4f} not ~1.0")
+                ok = False
+        print(f"  Most similar layer: {result['summary']['most_similar_layer']}")
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 40. layer_clustering (error case: too few prompts)
+    # ------------------------------------------------------------------
+    result = await layer_clustering(prompts=["only one"])
+    ok = result.get("error") is True and result.get("error_type") == "InvalidInput"
+    print(f"\n  [{'PASS' if ok else 'FAIL'}] layer_clustering error envelope (InvalidInput)")
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 41. logit_attribution
+    # ------------------------------------------------------------------
+    result = await logit_attribution(
+        prompt="The capital of France is",
+        layers=test_layers,
+        position=-1,
+    )
+    pp("logit_attribution", result)
+    ok = check("logit_attribution", result, [
+        "prompt", "token_position", "token_text", "target_token",
+        "target_token_id", "model_logit", "model_probability",
+        "embedding_logit", "layers", "attribution_sum", "summary",
+    ])
+    if ok:
+        print(f"  Target: {result['target_token']!r} (id={result['target_token_id']})")
+        print(f"  Model logit: {result['model_logit']:.4f}  prob: {result['model_probability']:.4f}")
+        print(f"  Embedding logit: {result['embedding_logit']:.4f}")
+        print(f"  Attribution sum: {result['attribution_sum']:.4f}")
+        for entry in result["layers"]:
+            print(f"    Layer {entry['layer']:>3}: attn={entry['attention_logit']:>+8.3f} "
+                  f"ffn={entry['ffn_logit']:>+8.3f} total={entry['total_logit']:>+8.3f} "
+                  f"cum={entry['cumulative_logit']:>+8.3f} "
+                  f"attn→{entry['attention_top_token']!r} ffn→{entry['ffn_top_token']!r}")
+        # Verify probability is in [0, 1]
+        if not (0.0 <= result["model_probability"] <= 1.0):
+            print(f"  [{FAIL}] model_probability {result['model_probability']:.4f} not in [0, 1]")
+            ok = False
+        # Verify attribution_sum is finite
+        import math
+        if not math.isfinite(result["attribution_sum"]):
+            print(f"  [{FAIL}] attribution_sum is not finite")
+            ok = False
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 42. logit_attribution (error case: layer out of range)
+    # ------------------------------------------------------------------
+    result = await logit_attribution(
+        prompt="test",
+        layers=[num_layers + 100],
+    )
+    ok = result.get("error") is True and result.get("error_type") == "LayerOutOfRange"
+    print(f"\n  [{'PASS' if ok else 'FAIL'}] logit_attribution error envelope (LayerOutOfRange)")
     results.append(ok)
 
     # ------------------------------------------------------------------

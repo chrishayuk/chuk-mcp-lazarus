@@ -37,7 +37,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 }
 ```
 
-## Tools (26)
+## Tools (31)
 
 | Group | Tool | Purpose |
 |-------|------|---------|
@@ -61,6 +61,11 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 | Steering | `list_steering_vectors` | List all computed vectors |
 | Ablation | `ablate_layers` | Zero out layers, measure disruption |
 | Ablation | `patch_activations` | Swap activations between prompts |
+| Causal | `trace_token` | Which layers are causally necessary for a prediction |
+| Causal | `full_causal_trace` | Position × layer causal heatmap (Meng et al. style) |
+| Residual | `residual_decomposition` | Attention vs MLP contribution per layer |
+| Residual | `layer_clustering` | Representation similarity and cluster separation across layers |
+| Residual | `logit_attribution` | Direct logit attribution: per-layer component contributions to predicted token |
 | Comparison | `load_comparison_model` | Load a second model for side-by-side analysis |
 | Comparison | `compare_weights` | Frobenius norm + cosine sim per layer per component |
 | Comparison | `compare_representations` | Per-layer activation divergence across prompts |
@@ -95,7 +100,7 @@ Smoke tests use **SmolLM2-135M** for speed.
 
 ## The Demo: Language Transition Probing
 
-The flagship experiment follows a 14-step workflow:
+The flagship experiment follows a 15-step workflow:
 
 1. **Load model** -- `load_model("google/gemma-3-4b-it")`
 2. **Inspect architecture** -- `get_model_info()` reveals 34 layers
@@ -111,6 +116,7 @@ The flagship experiment follows a 14-step workflow:
 12. **Compute steering vector** -- French-to-German direction
 13. **Steer generation** -- redirect a French translation to German
 14. **Alpha sweep** -- iterate with different steering strengths
+15. **Causal tracing** -- prove which layers are necessary for the prediction
 
 Run it: `uv run python examples/language_transition_demo.py`
 
@@ -160,6 +166,8 @@ src/chuk_mcp_lazarus/
     ├── probe_tools.py       # train_probe, evaluate_probe, scan, list
     ├── steering_tools.py    # compute_vector, steer, list
     ├── ablation_tools.py    # ablate_layers, patch_activations
+    ├── causal_tools.py      # trace_token, full_causal_trace
+    ├── residual_tools.py    # residual_decomposition, layer_clustering
     └── comparison_tools.py  # compare_weights, representations, attention, generations
 ```
 

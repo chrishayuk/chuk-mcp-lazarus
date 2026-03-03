@@ -9,7 +9,7 @@ from chuk_mcp_server import ChukMCPServer
 
 mcp = ChukMCPServer(
     name="chuk-mcp-lazarus",
-    version="0.5.0",
+    version="0.8.0",
     title="Lazarus Interpretability Server",
     description=(
         "Mechanistic interpretability toolkit. "

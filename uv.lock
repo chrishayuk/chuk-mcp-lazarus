@@ -162,7 +162,7 @@ wheels = [
 
 [[package]]
 name = "chuk-mcp-lazarus"
-version = "0.5.0"
+version = "0.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "chuk-lazarus" },

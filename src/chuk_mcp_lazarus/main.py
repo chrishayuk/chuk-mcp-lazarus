@@ -50,7 +50,7 @@ def main() -> None:
         registered_tools = mcp.get_tools()
         registered_resources = mcp.get_resources()
 
-        print(f"Lazarus Interpretability Server v0.5.0", file=sys.stdout)
+        print(f"Lazarus Interpretability Server v0.8.0", file=sys.stdout)
         print("=" * 50, file=sys.stdout)
         print(f"Tools ({len(registered_tools)}):", file=sys.stdout)
         for tool in registered_tools:
