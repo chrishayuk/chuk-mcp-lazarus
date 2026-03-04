@@ -2,7 +2,6 @@
 
 from unittest.mock import MagicMock, patch
 
-from chuk_mcp_lazarus.model_state import ModelMetadata
 from chuk_mcp_lazarus.resources import (
     comparison_state_resource,
     model_info_resource,

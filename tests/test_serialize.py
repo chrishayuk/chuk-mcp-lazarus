@@ -19,6 +19,7 @@ class TestMxToList:
 
     def test_mx_array(self) -> None:
         import mlx.core as mx
+
         arr = mx.array([1.0, 2.0, 3.0])
         result = mx_to_list(arr)
         assert result == [1.0, 2.0, 3.0]
@@ -29,6 +30,7 @@ class TestMxToList:
 
     def test_nested(self) -> None:
         import mlx.core as mx
+
         arr = mx.array([[1.0, 2.0], [3.0, 4.0]])
         result = mx_to_list(arr)
         assert result == [[1.0, 2.0], [3.0, 4.0]]
@@ -39,6 +41,7 @@ class TestToPylist:
 
     def test_mx_array(self) -> None:
         import mlx.core as mx
+
         arr = mx.array([1.0, 2.0])
         result = to_pylist(arr)
         assert result == [1.0, 2.0]
@@ -122,24 +125,28 @@ class TestHiddenStateToList:
 
     def test_1d(self) -> None:
         import mlx.core as mx
+
         arr = mx.array([1.0, 2.0, 3.0])
         result = hidden_state_to_list(arr)
         assert result == [1.0, 2.0, 3.0]
 
     def test_2d_last(self) -> None:
         import mlx.core as mx
+
         arr = mx.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
         result = hidden_state_to_list(arr, position=-1)
         assert result == [5.0, 6.0]
 
     def test_2d_first(self) -> None:
         import mlx.core as mx
+
         arr = mx.array([[1.0, 2.0], [3.0, 4.0]])
         result = hidden_state_to_list(arr, position=0)
         assert result == [1.0, 2.0]
 
     def test_3d(self) -> None:
         import mlx.core as mx
+
         arr = mx.array([[[1.0, 2.0], [3.0, 4.0]]])
         result = hidden_state_to_list(arr, position=-1)
         assert result == [3.0, 4.0]

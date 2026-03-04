@@ -107,15 +107,15 @@ dev-install:
 # Testing Targets
 # ============================================================================
 
-# Run pytest tests (exit code 5 = no tests collected, which is OK for this project)
+# Run pytest tests
 test:
 	@echo "Running tests..."
 	@if command -v uv >/dev/null 2>&1; then \
-		uv run pytest || test $$? -eq 5; \
+		uv run pytest; \
 	elif command -v pytest >/dev/null 2>&1; then \
-		pytest || test $$? -eq 5; \
+		pytest; \
 	else \
-		python -m pytest || test $$? -eq 5; \
+		python -m pytest; \
 	fi
 
 # Run tests with coverage

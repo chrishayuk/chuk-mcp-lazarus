@@ -113,3 +113,132 @@ class TestModelState:
         w.size = 50
         model.parameters.return_value = {"a": {"b": {"c": w}}}
         assert ModelState._count_parameters(model) == 50
+
+    def _make_mock_pipeline(self) -> MagicMock:
+        """Build a mock pipeline with properly typed config attributes."""
+        pipeline = MagicMock()
+        pipeline.config.num_hidden_layers = 4
+        pipeline.config.hidden_size = 64
+        pipeline.config.num_attention_heads = 4
+        pipeline.config.num_key_value_heads = 4
+        pipeline.config.vocab_size = 100
+        pipeline.config.intermediate_size = 256
+        pipeline.config.max_position_embeddings = 512
+        pipeline.config.head_dim = 16
+        pipeline.config.model_type = "test_arch"
+        pipeline.config.num_local_experts = None
+        pipeline.family.family_type.value = "test"
+        pipeline.model.parameters.return_value = {}
+        return pipeline
+
+    def test_load_success(self) -> None:
+        """Test load() calls _do_load and returns metadata."""
+        state = ModelState.get()
+        mock_pipeline = self._make_mock_pipeline()
+
+        with patch(
+            "chuk_lazarus.inference.UnifiedPipeline.from_pretrained",
+            return_value=mock_pipeline,
+        ):
+            metadata = state.load("test/model", WeightDType.BFLOAT16)
+
+        assert state.is_loaded is True
+        assert metadata.model_id == "test/model"
+        assert state.metadata.model_id == "test/model"
+        assert state.model is not None
+        assert state.tokenizer is not None
+        assert state.config is not None
+
+    def test_load_idempotent(self) -> None:
+        """Loading the same model_id twice returns immediately without re-loading."""
+        state = ModelState.get()
+        mock_pipeline = self._make_mock_pipeline()
+
+        with patch(
+            "chuk_lazarus.inference.UnifiedPipeline.from_pretrained",
+            return_value=mock_pipeline,
+        ):
+            meta1 = state.load("test/model", WeightDType.BFLOAT16)
+            meta2 = state.load("test/model", WeightDType.BFLOAT16)
+
+        assert meta1.model_id == meta2.model_id
+        assert meta1 is meta2  # exact same ModelMetadata object
+
+    def test_extract_metadata(self) -> None:
+        """Test _extract_metadata builds ModelMetadata from a mock pipeline."""
+        state = ModelState.get()
+
+        # Build a mock pipeline with config and family
+        pipeline = MagicMock()
+        pipeline.config.num_hidden_layers = 12
+        pipeline.config.hidden_size = 768
+        pipeline.config.num_attention_heads = 12
+        pipeline.config.num_key_value_heads = 4
+        pipeline.config.vocab_size = 32000
+        pipeline.config.intermediate_size = 3072
+        pipeline.config.max_position_embeddings = 2048
+        pipeline.config.head_dim = 64
+        pipeline.config.model_type = "llama"
+        pipeline.config.num_local_experts = None
+        pipeline.family.family_type.value = "llama"
+        pipeline.model.parameters.return_value = {}
+
+        metadata = state._extract_metadata("test/llama", pipeline)
+
+        assert metadata.model_id == "test/llama"
+        assert metadata.family == "llama"
+        assert metadata.architecture == "llama"
+        assert metadata.num_layers == 12
+        assert metadata.hidden_dim == 768
+        assert metadata.num_attention_heads == 12
+        assert metadata.num_kv_heads == 4
+        assert metadata.vocab_size == 32000
+        assert metadata.intermediate_size == 3072
+        assert metadata.max_position_embeddings == 2048
+        assert metadata.head_dim == 64
+        assert metadata.is_moe is False
+        assert metadata.num_experts is None
+
+    def test_extract_metadata_moe(self) -> None:
+        """Test _extract_metadata detects MoE models."""
+        state = ModelState.get()
+
+        pipeline = MagicMock()
+        pipeline.config.num_hidden_layers = 8
+        pipeline.config.hidden_size = 512
+        pipeline.config.num_attention_heads = 8
+        pipeline.config.num_key_value_heads = 8
+        pipeline.config.vocab_size = 10000
+        pipeline.config.intermediate_size = 2048
+        pipeline.config.max_position_embeddings = 1024
+        pipeline.config.head_dim = 64
+        pipeline.config.model_type = "mixtral"
+        pipeline.config.num_local_experts = 8
+        pipeline.family.family_type.value = "mixtral"
+        pipeline.model.parameters.return_value = {}
+
+        metadata = state._extract_metadata("test/mixtral", pipeline)
+
+        assert metadata.is_moe is True
+        assert metadata.num_experts == 8
+
+    def test_extract_metadata_no_family_info(self) -> None:
+        """Test _extract_metadata when pipeline.family is None."""
+        state = ModelState.get()
+
+        pipeline = MagicMock()
+        pipeline.config.num_hidden_layers = 4
+        pipeline.config.hidden_size = 64
+        pipeline.config.num_attention_heads = 4
+        pipeline.config.num_key_value_heads = 4
+        pipeline.config.vocab_size = 100
+        pipeline.config.intermediate_size = 256
+        pipeline.config.max_position_embeddings = 512
+        pipeline.config.head_dim = 16
+        pipeline.config.model_type = "unknown"
+        pipeline.config.num_local_experts = None
+        pipeline.family = None
+        pipeline.model.parameters.return_value = {}
+
+        metadata = state._extract_metadata("test/unknown", pipeline)
+        assert metadata.family == "unknown"

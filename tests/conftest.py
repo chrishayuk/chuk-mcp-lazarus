@@ -21,6 +21,7 @@ import pytest
 # 1. MLX stub — must be installed BEFORE any source imports
 # ---------------------------------------------------------------------------
 
+
 def _make_mx_stub() -> types.ModuleType:
     """Build a minimal mlx.core stub for testing."""
     mx = types.ModuleType("mlx")
@@ -70,10 +71,29 @@ def _make_mx_stub() -> types.ModuleType:
         def transpose(self, *axes: Any) -> MockMxArray:
             return MockMxArray(self._data.transpose(*axes))
 
+        @property
+        def T(self) -> MockMxArray:
+            return MockMxArray(self._data.T)
+
+        def sum(self, axis: Any = None, keepdims: bool = False) -> MockMxArray:
+            return MockMxArray(self._data.sum(axis=axis, keepdims=keepdims))
+
         def astype(self, dtype: Any) -> MockMxArray:
             return MockMxArray(self._data, dtype=dtype)
 
         def __getitem__(self, key: Any) -> MockMxArray:
+            # Handle MockMxArray as index (fancy indexing)
+            if isinstance(key, MockMxArray):
+                key = key._data.astype(int) if key._data.dtype.kind == "f" else key._data
+            elif isinstance(key, tuple):
+                key = tuple(
+                    k._data.astype(int)
+                    if isinstance(k, MockMxArray) and k._data.dtype.kind == "f"
+                    else k._data
+                    if isinstance(k, MockMxArray)
+                    else k
+                    for k in key
+                )
             result = self._data[key]
             if isinstance(result, np.ndarray):
                 return MockMxArray(result)
@@ -101,6 +121,26 @@ def _make_mx_stub() -> types.ModuleType:
             od = other._data if isinstance(other, MockMxArray) else other
             return MockMxArray(self._data / od)
 
+        def __matmul__(self, other: Any) -> MockMxArray:
+            od = other._data if isinstance(other, MockMxArray) else other
+            return MockMxArray(self._data @ od)
+
+        def __gt__(self, other: Any) -> MockMxArray:
+            od = other._data if isinstance(other, MockMxArray) else other
+            return MockMxArray(self._data > od)
+
+        def __lt__(self, other: Any) -> MockMxArray:
+            od = other._data if isinstance(other, MockMxArray) else other
+            return MockMxArray(self._data < od)
+
+        def __ge__(self, other: Any) -> MockMxArray:
+            od = other._data if isinstance(other, MockMxArray) else other
+            return MockMxArray(self._data >= od)
+
+        def __le__(self, other: Any) -> MockMxArray:
+            od = other._data if isinstance(other, MockMxArray) else other
+            return MockMxArray(self._data <= od)
+
         def __neg__(self) -> MockMxArray:
             return MockMxArray(-self._data)
 
@@ -109,6 +149,9 @@ def _make_mx_stub() -> types.ModuleType:
 
         def __float__(self) -> float:
             return float(self._data)
+
+        def __int__(self) -> int:
+            return int(self._data)
 
         def __repr__(self) -> str:
             return f"MockMxArray({self._data})"
@@ -253,6 +296,7 @@ if "mlx" not in sys.modules:
 # 2. chuk-lazarus stubs
 # ---------------------------------------------------------------------------
 
+
 def _install_lazarus_stubs() -> None:
     """Install stubs for chuk_lazarus imports used in source code."""
     if "chuk_lazarus" in sys.modules:
@@ -326,6 +370,7 @@ def _install_lazarus_stubs() -> None:
 
         def forward(self, input_ids: Any) -> None:
             import mlx.core as mx
+
             # Populate hidden states with mock data
             for layer in getattr(self, "_config", CaptureConfig()).layers:
                 self.state.hidden_states[layer] = mx.array(
@@ -338,8 +383,9 @@ def _install_lazarus_stubs() -> None:
         def _get_lm_head(self) -> Any:
             return MagicMock()
 
-        def get_layer_logits(self, layer: int) -> Any:
+        def get_layer_logits(self, layer: int, normalize: bool = False) -> Any:
             import mlx.core as mx
+
             return mx.array(np.random.randn(100).astype(np.float32))
 
     hooks_mod.CaptureConfig = CaptureConfig  # type: ignore[attr-defined]
@@ -349,6 +395,172 @@ def _install_lazarus_stubs() -> None:
     sys.modules["chuk_lazarus.introspection.hooks"] = hooks_mod
     introspection.hooks = hooks_mod  # type: ignore[attr-defined]
 
+    # ---- ablation stubs ----
+    ablation_pkg = types.ModuleType("chuk_lazarus.introspection.ablation")
+    sys.modules["chuk_lazarus.introspection.ablation"] = ablation_pkg
+    introspection.ablation = ablation_pkg  # type: ignore[attr-defined]
+
+    adapter_mod = types.ModuleType("chuk_lazarus.introspection.ablation.adapter")
+
+    class StubModelAdapter:
+        def __init__(self, model: Any = None, tokenizer: Any = None, config: Any = None) -> None:
+            self.model = model
+            self.tokenizer = tokenizer
+            self.config = config
+
+    adapter_mod.ModelAdapter = StubModelAdapter  # type: ignore[attr-defined]
+    sys.modules["chuk_lazarus.introspection.ablation.adapter"] = adapter_mod
+    ablation_pkg.adapter = adapter_mod  # type: ignore[attr-defined]
+
+    study_mod = types.ModuleType("chuk_lazarus.introspection.ablation.study")
+
+    class StubAblationStudy:
+        def __init__(self, adapter: Any = None) -> None:
+            self.adapter = adapter
+
+        def ablate_and_generate(self, **kwargs: Any) -> str:
+            return "ablated output stub"
+
+    study_mod.AblationStudy = StubAblationStudy  # type: ignore[attr-defined]
+    sys.modules["chuk_lazarus.introspection.ablation.study"] = study_mod
+    ablation_pkg.study = study_mod  # type: ignore[attr-defined]
+
+    config_mod = types.ModuleType("chuk_lazarus.introspection.ablation.config")
+
+    from enum import Enum
+
+    class StubComponentType(str, Enum):
+        MLP = "mlp"
+        ATTENTION = "attention"
+        BOTH = "both"
+
+    class StubAblationConfig:
+        def __init__(self, **kwargs: Any) -> None:
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+
+    config_mod.ComponentType = StubComponentType  # type: ignore[attr-defined]
+    config_mod.AblationConfig = StubAblationConfig  # type: ignore[attr-defined]
+    sys.modules["chuk_lazarus.introspection.ablation.config"] = config_mod
+    ablation_pkg.config = config_mod  # type: ignore[attr-defined]
+
+    # ---- interventions stub ----
+    interventions_mod = types.ModuleType("chuk_lazarus.introspection.interventions")
+
+    class StubPatchResult:
+        def __init__(self) -> None:
+            self.patched_output = "patched output stub"
+            self.corrupt_output = "corrupt output stub"
+            self.clean_output = "clean output stub"
+            self.recovery_rate = 0.75
+            self.effect_size = 0.25
+
+    class StubCounterfactualIntervention:
+        def __init__(self, model: Any = None, tokenizer: Any = None) -> None:
+            self.model = model
+            self.tokenizer = tokenizer
+
+        def patch_run(self, **kwargs: Any) -> StubPatchResult:
+            return StubPatchResult()
+
+    interventions_mod.CounterfactualIntervention = StubCounterfactualIntervention  # type: ignore[attr-defined]
+    sys.modules["chuk_lazarus.introspection.interventions"] = interventions_mod
+    introspection.interventions = interventions_mod  # type: ignore[attr-defined]
+
+    # ---- circuit stubs (for direction_tools) ----
+    from enum import Enum as _Enum
+
+    circuit_pkg = types.ModuleType("chuk_lazarus.introspection.circuit")
+    sys.modules["chuk_lazarus.introspection.circuit"] = circuit_pkg
+    introspection.circuit = circuit_pkg  # type: ignore[attr-defined]
+
+    # collector stub
+    collector_mod = types.ModuleType("chuk_lazarus.introspection.circuit.collector")
+
+    class StubCollectedActivations:
+        def __init__(self, **kwargs: Any) -> None:
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+
+        def get_activations_numpy(self, layer: int) -> Any:
+
+            acts = self.hidden_states.get(layer)  # type: ignore[attr-defined]
+            if acts is None:
+                return None
+            if hasattr(acts, "_data"):
+                return np.array(acts._data, dtype=np.float32, copy=False)
+            return np.array(acts, dtype=np.float32)
+
+    collector_mod.CollectedActivations = StubCollectedActivations  # type: ignore[attr-defined]
+    sys.modules["chuk_lazarus.introspection.circuit.collector"] = collector_mod
+    circuit_pkg.collector = collector_mod  # type: ignore[attr-defined]
+
+    # directions stub
+    directions_mod = types.ModuleType("chuk_lazarus.introspection.circuit.directions")
+
+    class StubDirectionMethod(str, _Enum):
+        DIFFERENCE_OF_MEANS = "diff_means"
+        LDA = "lda"
+        PROBE_WEIGHTS = "probe_weights"
+        CONTRASTIVE = "contrastive"
+        PCA = "pca"
+
+    class StubExtractedDirection:
+        def __init__(self, **kwargs: Any) -> None:
+            self.direction = kwargs.get("direction", np.zeros(64))
+            self.separation_score = kwargs.get("separation_score", 1.0)
+            self.accuracy = kwargs.get("accuracy", 0.9)
+            self.mean_projection_positive = kwargs.get("mean_projection_positive", 0.5)
+            self.mean_projection_negative = kwargs.get("mean_projection_negative", -0.5)
+            self.positive_label = kwargs.get("positive_label", "positive")
+            self.negative_label = kwargs.get("negative_label", "negative")
+
+    class StubDirectionExtractor:
+        def __init__(self, activations: Any) -> None:
+            self.activations = activations
+
+        def extract_direction(
+            self,
+            layer: int,
+            method: Any = None,
+            positive_label: int = 1,
+            negative_label: int = 0,
+        ) -> StubExtractedDirection:
+            X = self.activations.get_activations_numpy(layer)
+            labels = np.array(self.activations.labels)
+            pos_acts = X[labels == positive_label]
+            neg_acts = X[labels == negative_label]
+            direction = pos_acts.mean(axis=0) - neg_acts.mean(axis=0)
+            norm = float(np.linalg.norm(direction))
+            if norm > 1e-8:
+                normed = direction / norm
+            else:
+                normed = direction
+            # Compute separation score (Cohen's d)
+            pos_proj = pos_acts @ normed
+            neg_proj = neg_acts @ normed
+            pooled_std = np.sqrt((np.var(pos_proj) + np.var(neg_proj)) / 2 + 1e-8)
+            sep = float(abs(np.mean(pos_proj) - np.mean(neg_proj)) / pooled_std)
+            # Accuracy via midpoint threshold
+            midpoint = (np.mean(pos_proj) + np.mean(neg_proj)) / 2
+            all_proj = np.concatenate([pos_proj, neg_proj])
+            all_labels = np.concatenate([np.ones(len(pos_proj)), np.zeros(len(neg_proj))])
+            preds = (all_proj > midpoint).astype(float)
+            acc = float(np.mean(preds == all_labels))
+            return StubExtractedDirection(
+                direction=direction,
+                separation_score=sep,
+                accuracy=acc,
+                mean_projection_positive=float(np.mean(pos_proj)),
+                mean_projection_negative=float(np.mean(neg_proj)),
+            )
+
+    directions_mod.DirectionMethod = StubDirectionMethod  # type: ignore[attr-defined]
+    directions_mod.DirectionExtractor = StubDirectionExtractor  # type: ignore[attr-defined]
+    directions_mod.ExtractedDirection = StubExtractedDirection  # type: ignore[attr-defined]
+    sys.modules["chuk_lazarus.introspection.circuit.directions"] = directions_mod
+    circuit_pkg.directions = directions_mod  # type: ignore[attr-defined]
+
 
 _install_lazarus_stubs()
 
@@ -356,6 +568,7 @@ _install_lazarus_stubs()
 # ---------------------------------------------------------------------------
 # 3. chuk-mcp-server stub
 # ---------------------------------------------------------------------------
+
 
 def _install_mcp_server_stub() -> None:
     """Install a stub for chuk_mcp_server so server.py can import."""
@@ -377,12 +590,14 @@ def _install_mcp_server_stub() -> None:
             def decorator(fn: Any) -> Any:
                 self._tools[fn.__name__] = fn
                 return fn
+
             return decorator
 
         def resource(self, uri: str, **kwargs: Any) -> Any:
             def decorator(fn: Any) -> Any:
                 self._resources[uri] = fn
                 return fn
+
             return decorator
 
     mod.ChukMCPServer = ChukMCPServer  # type: ignore[attr-defined]
@@ -395,6 +610,7 @@ _install_mcp_server_stub()
 # ---------------------------------------------------------------------------
 # 4. chuk-virtual-expert stub (via bootstrap)
 # ---------------------------------------------------------------------------
+
 
 def _install_virtual_expert_stub() -> None:
     """Install stub for chuk_virtual_expert if missing."""
@@ -472,9 +688,7 @@ def mock_model() -> MagicMock:
     model.return_value = logits
 
     # Embed tokens weight
-    model.model.embed_tokens.weight = mx.array(
-        np.random.randn(100, 64).astype(np.float32)
-    )
+    model.model.embed_tokens.weight = mx.array(np.random.randn(100, 64).astype(np.float32))
 
     # Layers (4 layers with attention and mlp sub-modules)
     layers = []
@@ -487,9 +701,7 @@ def mock_model() -> MagicMock:
             )
         # MLP weights
         for proj in ["gate_proj", "up_proj", "down_proj"]:
-            getattr(layer.mlp, proj).weight = mx.array(
-                np.random.randn(64, 64).astype(np.float32)
-            )
+            getattr(layer.mlp, proj).weight = mx.array(np.random.randn(64, 64).astype(np.float32))
         layers.append(layer)
     model.model.layers = layers
 

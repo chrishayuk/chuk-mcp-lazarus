@@ -21,13 +21,13 @@ class TestTraceToken:
         assert result["error_type"] == "LayerOutOfRange"
 
     @pytest.mark.asyncio
-    async def test_invalid_effect_threshold(self, loaded_model_state: MagicMock) -> None:
+    async def test_invalid_effect_threshold_low(self, loaded_model_state: MagicMock) -> None:
         result = await trace_token(prompt="hello", token="world", effect_threshold=-1.0)
         assert result["error"] is True
         assert result["error_type"] == "InvalidInput"
 
     @pytest.mark.asyncio
-    async def test_effect_threshold_too_high(self, loaded_model_state: MagicMock) -> None:
+    async def test_invalid_effect_threshold_high(self, loaded_model_state: MagicMock) -> None:
         result = await trace_token(prompt="hello", token="world", effect_threshold=1.5)
         assert result["error"] is True
         assert result["error_type"] == "InvalidInput"
@@ -46,9 +46,14 @@ class TestTraceToken:
         mock_trace.peak_effect = 0.5
         mock_ci.trace_token.return_value = mock_trace
 
-        with patch(
-            "chuk_mcp_lazarus.tools.causal_tools.CounterfactualIntervention",
-            return_value=mock_ci,
+        mock_ci_class = MagicMock(return_value=mock_ci)
+        with patch.dict(
+            "sys.modules",
+            {
+                "chuk_lazarus.introspection.interventions": MagicMock(
+                    CounterfactualIntervention=mock_ci_class
+                )
+            },
         ):
             result = await trace_token(prompt="hello", token="world", layers=[0, 1])
         assert "error" not in result
@@ -69,9 +74,14 @@ class TestTraceToken:
         mock_trace.peak_effect = 0.1
         mock_ci.trace_token.return_value = mock_trace
 
-        with patch(
-            "chuk_mcp_lazarus.tools.causal_tools.CounterfactualIntervention",
-            return_value=mock_ci,
+        mock_ci_class = MagicMock(return_value=mock_ci)
+        with patch.dict(
+            "sys.modules",
+            {
+                "chuk_lazarus.introspection.interventions": MagicMock(
+                    CounterfactualIntervention=mock_ci_class
+                )
+            },
         ):
             result = await trace_token(prompt="hello", token="world")
         assert "error" not in result
@@ -102,9 +112,14 @@ class TestFullCausalTrace:
         mock_trace.critical_layers = [0]
         mock_ci.full_causal_trace.return_value = mock_trace
 
-        with patch(
-            "chuk_mcp_lazarus.tools.causal_tools.CounterfactualIntervention",
-            return_value=mock_ci,
+        mock_ci_class = MagicMock(return_value=mock_ci)
+        with patch.dict(
+            "sys.modules",
+            {
+                "chuk_lazarus.introspection.interventions": MagicMock(
+                    CounterfactualIntervention=mock_ci_class
+                )
+            },
         ):
             result = await full_causal_trace(prompt="hello", token="world", layers=[0, 1])
         assert "error" not in result

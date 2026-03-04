@@ -152,6 +152,25 @@ complete. Attention tools reuse `_compute_attention_weights` from `_compare.py`.
 wrapped in `asyncio.to_thread`. Input validation (top_k, max_new_tokens, empty layers)
 across all tools. Shared comparison guard `_require_comparison_models()`.
 
+#### Step 6i: Comprehensive Test Suite ✅
+- `tests/conftest.py` -- Shared fixtures: MLX stub (MockMxArray with full arithmetic,
+  indexing, comparison operators), chuk-lazarus stubs (ModelHooks, CaptureConfig,
+  ablation/intervention modules), mock model/tokenizer/config, autouse fixtures
+  for `asyncio.to_thread` sync execution and singleton reset
+- 22 test files covering all 25 source files
+- Tests run on any platform (no Apple Silicon / MLX required)
+- Mocks all chuk-lazarus dependencies via `sys.modules` stubs
+- Tests cover: error envelopes, input validation, success paths, exception handling,
+  pure helper functions, `_impl` function internals, singleton lifecycle, Pydantic
+  model serialization
+
+**Status:** 595 tests passing. 96% overall coverage. Per-file coverage:
+
+| Coverage | Files |
+|----------|-------|
+| 100% | `__init__`, `_bootstrap`, `_extraction`, `_serialize`, `errors`, `model_state`, `probe_store`, `resources`, `server`, `steering_store`, `tools/__init__`, `ablation_tools`, `attention_tools`, `probe_tools`, `residual_tools` |
+| 90--99% | `comparison_state` (99%), `activation_tools` (98%), `generation_tools` (94%), `steering_tools` (92%), `_generate` (92%), `_compare` (91%), `causal_tools` (91%), `comparison_tools` (90%), `model_tools` (90%) |
+
 ---
 
 ## Phase 1b -- chuk-mcp-lazarus (Extended)
@@ -165,15 +184,19 @@ the revolutionary experiments described below.
 **Implementation is prioritized by how many revolutionary experiments
 each tool unblocks.** All backends exist in chuk-lazarus.
 
-### Step 7: Neuron Analysis
+### Step 7: Neuron Analysis ✅ (v0.10.0)
 
 Map the neuron landscape -- discover which individual neurons encode
 specific features.
 
 | Tool | Purpose | Backed by |
 |------|---------|-----------|
-| `discover_neurons` | Auto-find neurons that discriminate between prompt groups (e.g. which neurons fire for French vs English) | `NeuronAnalysisService.auto_discover_neurons()` |
-| `analyze_neuron` | Profile a specific neuron: activation stats, separation score, group means across prompts | `NeuronAnalysisService.analyze_neurons()` |
+| `discover_neurons` | Auto-find neurons that discriminate between prompt groups (e.g. which neurons fire for French vs English) | Reimplemented from `NeuronAnalysisService` using `_extraction.py` |
+| `analyze_neuron` | Profile a specific neuron: activation stats, separation score, group means across prompts | Reimplemented from `NeuronAnalysisService` using `_extraction.py` |
+
+> **Note:** Neuron tools reimplement the core Cohen's d / activation statistics
+> algorithms from `NeuronAnalysisService` using shared `_extraction.py` helpers,
+> avoiding the service's own model-loading path. Pure numpy, no chuk-lazarus imports.
 
 **Unlocks:** Automated Circuit Discovery, Computational Stratigraphy,
 Fine-Tuning Delta, Metacognition Probing, Universal Circuits.
@@ -221,16 +244,18 @@ STEER, SCALE) and `ComponentTarget` enum (HIDDEN, ATTENTION, MLP,
 ATTENTION_HEAD, MLP_NEURON). Returns recovery rates, KL divergence,
 and peak effect layers.
 
-### Step 11: Direction Extraction ⭐ HIGH PRIORITY
+### Step 11: Direction Extraction ✅ (v0.10.0)
 
 Find interpretable directions in activation space using multiple
-methods beyond simple mean-difference. **Second most important
-capability** -- enables understanding what features the model
-represents and how they change with fine-tuning.
+methods beyond simple mean-difference. Enables understanding what
+features the model represents and how they change with fine-tuning.
 
 | Tool | Purpose | Backed by |
 |------|---------|-----------|
-| `extract_direction` | Find directions via mean-diff, LDA, PCA, probe weights, or contrastive methods | `DirectionExtractor` with `DirectionMethod` enum |
+| `extract_direction` | Find directions via mean-diff, LDA, PCA, or probe weights | `DirectionExtractor` with `DirectionMethod` enum |
+
+> **Note:** Extracted directions are automatically stored in the
+> `SteeringVectorRegistry` for immediate use with `steer_and_generate()`.
 
 **Unlocks:** Computational Stratigraphy, Fine-Tuning Delta,
 Metacognition Probing, Universal Circuits, Safety Patching.
@@ -570,8 +595,8 @@ If chuk-lazarus training capabilities are exposed:
 | 0.7.0 | Phase 1 Step 6f (residual stream: residual_decomposition, layer_clustering) | ✅ |
 | 0.8.0 | Phase 1 Step 6g (logit_attribution: direct logit attribution) | ✅ |
 | 0.9.0 | Phase 1 Step 6h (head_attribution, top_neurons, embedding_neighbors) | ✅ |
-| 0.10.0 | Phase 1b Step 11 (direction extraction: extract_direction) | |
-| 0.11.0 | Phase 1b Step 7 (neurons: discover_neurons, analyze_neuron) | |
+| 0.9.1 | Phase 1 Step 6i (comprehensive test suite: 595 tests, 96% coverage) | ✅ |
+| 0.10.0 | Phase 1b Steps 7+11 (direction, neurons: 3 tools, 639 tests) | ✅ |
 | 0.12.0 | Phase 1b Steps 13--14 (confidence, metacognition, external memory) | |
 | 0.13.0 | Phase 2 (tokenizer server) | |
 | 0.14.0 | Phase 3 (introspect server) | |
@@ -585,8 +610,8 @@ If chuk-lazarus training capabilities are exposed:
 
 | Phase | Server | Tools |
 |-------|--------|-------|
-| 1 | lazarus (core) | 34 |
-| 1b | lazarus (extended) | ~9 |
+| 1 | lazarus (core) | 37 |
+| 1b | lazarus (extended) | ~6 |
 | 2 | tokenizer | 11 |
 | 3 | introspect | 7 |
 | 4 | moe | 20 |

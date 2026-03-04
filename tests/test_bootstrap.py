@@ -2,7 +2,6 @@
 
 import sys
 import types
-from unittest.mock import patch
 
 from chuk_mcp_lazarus._bootstrap import ensure_optional_stubs
 
