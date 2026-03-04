@@ -19,6 +19,16 @@ def mx_to_list(arr: Any) -> Any:
     return list(arr)
 
 
+def to_pylist(arr: Any) -> Any:
+    """Call arr.tolist() with an Any return type.
+
+    MLX stubs define ``tolist() -> list_or_scalar`` (a recursive union)
+    which mypy cannot narrow for downstream indexing / iteration.
+    This thin wrapper erases the problematic type so callers get ``Any``.
+    """
+    return arr.tolist()
+
+
 def np_to_python(val: Any) -> int | float | str | bool | None:
     """Convert a NumPy scalar to a plain Python scalar."""
     import numpy as np

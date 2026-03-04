@@ -25,7 +25,7 @@ import mlx.core as mx
 import mlx.nn as nn
 from pydantic import BaseModel, Field
 
-from .._serialize import cosine_similarity_matrix, hidden_state_to_list
+from .._serialize import cosine_similarity_matrix, hidden_state_to_list, to_pylist
 from ..errors import ToolError, make_error
 from ..model_state import ModelState
 from ..server import mcp
@@ -1303,7 +1303,7 @@ def _head_attribution_impl(
     num_tokens = input_ids.shape[-1]
     pos = position if position >= 0 else num_tokens + position
     pos = max(0, min(pos, num_tokens - 1))
-    tok_text = tokenizer.decode([input_ids.tolist()[pos]])
+    tok_text = tokenizer.decode([to_pylist(input_ids)[pos]])
 
     if input_ids.ndim == 1:
         input_ids = input_ids[None, :]
@@ -1480,7 +1480,7 @@ def _head_attribution_impl(
     all_logits = all_logits[0]  # [num_heads, vocab]
     top_ids = mx.argmax(all_logits, axis=1)  # [num_heads]
     mx.eval(top_ids)
-    top_ids_list = top_ids.tolist()
+    top_ids_list = to_pylist(top_ids)
 
     for head_i in range(num_heads):
         frac = head_logits[head_i] / layer_total if abs(layer_total) > 1e-8 else 0.0
@@ -1613,7 +1613,7 @@ def _top_neurons_impl(
     num_tokens = input_ids.shape[-1]
     pos = position if position >= 0 else num_tokens + position
     pos = max(0, min(pos, num_tokens - 1))
-    tok_text = tokenizer.decode([input_ids.tolist()[pos]])
+    tok_text = tokenizer.decode([to_pylist(input_ids)[pos]])
 
     if input_ids.ndim == 1:
         input_ids = input_ids[None, :]
@@ -1753,11 +1753,11 @@ def _top_neurons_impl(
     abs_logits = mx.abs(neuron_logits)
     sorted_indices = mx.argsort(abs_logits)[::-1]
     mx.eval(sorted_indices)
-    sorted_list = sorted_indices.tolist()
+    sorted_list = to_pylist(sorted_indices)
 
     # Split into positive and negative
-    neuron_logits_list = neuron_logits.tolist()
-    hidden_pos_list = hidden_pos.tolist()
+    neuron_logits_list = to_pylist(neuron_logits)
+    hidden_pos_list = to_pylist(hidden_pos)
 
     pos_neurons = [(i, neuron_logits_list[i]) for i in sorted_list if neuron_logits_list[i] > 0]
     neg_neurons = [(i, neuron_logits_list[i]) for i in sorted_list if neuron_logits_list[i] < 0]
@@ -1779,7 +1779,7 @@ def _top_neurons_impl(
         batch_logits = batch_logits[0]  # [n, vocab]
         batch_top_ids = mx.argmax(batch_logits, axis=1)
         mx.eval(batch_top_ids)
-        batch_top_ids_list = batch_top_ids.tolist()
+        batch_top_ids_list = to_pylist(batch_top_ids)
     else:
         batch_top_ids_list = []
 

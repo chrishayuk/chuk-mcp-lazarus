@@ -20,6 +20,7 @@ from .._serialize import (
     cosine_similarity_matrix,
     hidden_state_to_list,
     pca_2d,
+    to_pylist,
 )
 from ..errors import ToolError, make_error
 from ..model_state import ModelState
@@ -71,7 +72,7 @@ def _tokenize(tokenizer: Any, prompt: str) -> mx.array:
 
 def _token_text(tokenizer: Any, token_ids: mx.array, position: int) -> str:
     """Decode a single token at the given position."""
-    ids_list = token_ids.tolist()
+    ids_list = to_pylist(token_ids)
     if isinstance(ids_list[0], list):
         ids_list = ids_list[0]
     idx = position if position >= 0 else len(ids_list) + position

@@ -17,6 +17,7 @@ from typing import Any
 import mlx.core as mx
 from pydantic import BaseModel, Field
 
+from .._serialize import to_pylist
 from ..errors import ToolError, make_error
 from ..model_state import ModelState
 from ..server import mcp
@@ -195,7 +196,7 @@ def _attention_pattern_impl(
 
         for head_idx in range(num_heads):
             # Attention from token_position to all other tokens
-            head_weights = w[head_idx, pos, :].tolist()
+            head_weights = to_pylist(w[head_idx, pos, :])
 
             # Top-k attended positions
             indices = sorted(range(len(head_weights)), key=lambda i: head_weights[i], reverse=True)[
@@ -334,7 +335,7 @@ def _attention_heads_impl(
         for head_idx in range(num_heads):
             # Use last token's attention for analysis
             head_weights = w[head_idx, -1, :]
-            head_weights_list = head_weights.tolist()
+            head_weights_list = to_pylist(head_weights)
 
             # Entropy: -sum(p * log(p))
             eps = 1e-10

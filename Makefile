@@ -230,13 +230,13 @@ format:
 		echo "Ruff not found. Install with: pip install ruff"; \
 	fi
 
-# Type checking (non-blocking: MLX stubs use recursive types that mypy cannot narrow)
+# Type checking
 typecheck:
 	@echo "Running type checker..."
 	@if command -v uv >/dev/null 2>&1; then \
-		uv run mypy src || echo "⚠ mypy reported errors (see above). MLX tolist() type issues are expected."; \
+		uv run mypy src; \
 	elif command -v mypy >/dev/null 2>&1; then \
-		mypy src || echo "⚠ mypy reported errors (see above). MLX tolist() type issues are expected."; \
+		mypy src; \
 	else \
 		echo "MyPy not found. Install with: pip install mypy"; \
 	fi

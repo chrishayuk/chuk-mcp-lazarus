@@ -16,6 +16,7 @@ from typing import Any
 import mlx.core as mx
 from pydantic import BaseModel, Field
 
+from .._serialize import to_pylist
 from ..errors import ToolError, make_error
 from ..model_state import ModelState
 from ..server import mcp
@@ -271,9 +272,9 @@ def _predict_next(model: Any, tokenizer: Any, prompt: str, top_k: int) -> dict:
     sorted_indices = mx.argsort(probs)[::-1][:top_k]
     mx.eval(sorted_indices, probs, log_probs)
 
-    top_ids = sorted_indices.tolist()
-    top_probs = probs[sorted_indices].tolist()
-    top_log_probs = log_probs[sorted_indices].tolist()
+    top_ids = to_pylist(sorted_indices)
+    top_probs = to_pylist(probs[sorted_indices])
+    top_log_probs = to_pylist(log_probs[sorted_indices])
 
     entries = []
     for tid, p, lp in zip(top_ids, top_probs, top_log_probs):
@@ -436,7 +437,7 @@ def _logit_lens_impl(
     num_tokens = input_ids.shape[-1]
 
     # Resolve token text at the position
-    ids_list = input_ids.tolist()
+    ids_list = to_pylist(input_ids)
     pos = token_position if token_position >= 0 else num_tokens + token_position
     pos = max(0, min(pos, num_tokens - 1))
     token_text = tokenizer.decode([ids_list[pos]])
@@ -469,8 +470,8 @@ def _logit_lens_impl(
         sorted_indices = mx.argsort(probs)[::-1][:top_k]
         mx.eval(sorted_indices, probs)
 
-        top_ids = sorted_indices.tolist()
-        top_probs = probs[sorted_indices].tolist()
+        top_ids = to_pylist(sorted_indices)
+        top_probs = to_pylist(probs[sorted_indices])
         top_tokens = [tokenizer.decode([tid]) for tid in top_ids]
 
         predictions.append(
@@ -602,7 +603,7 @@ def _track_token_impl(
     num_tokens = input_ids.shape[-1]
 
     # Resolve token text at position
-    ids_list = input_ids.tolist()
+    ids_list = to_pylist(input_ids)
     pos = token_position if token_position >= 0 else num_tokens + token_position
     pos = max(0, min(pos, num_tokens - 1))
     token_text = tokenizer.decode([ids_list[pos]])
@@ -795,7 +796,7 @@ def _embedding_neighbors_impl(
     # Sort descending and take top_k+1 (to skip self)
     sorted_indices = mx.argsort(sims)[::-1]
     mx.eval(sorted_indices)
-    sorted_list = sorted_indices.tolist()
+    sorted_list = to_pylist(sorted_indices)
 
     neighbors: list[NeighborToken] = []
     for idx in sorted_list:
