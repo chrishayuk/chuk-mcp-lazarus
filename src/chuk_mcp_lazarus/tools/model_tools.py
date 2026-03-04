@@ -5,8 +5,6 @@ These are the first tools called in any session. load_model must
 succeed before any other tool can run.
 """
 
-from __future__ import annotations
-
 import logging
 
 from ..errors import ToolError, make_error

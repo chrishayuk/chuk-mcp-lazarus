@@ -8,8 +8,6 @@ position × layer patching grid (Meng et al. 2022 style).  Both wrap
 the CounterfactualIntervention backend from chuk-lazarus.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 

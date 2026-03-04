@@ -7,8 +7,6 @@ generation. This allows redirecting model behaviour -- e.g. steering a
 translation prompt from French output to German output.
 """
 
-from __future__ import annotations
-
 import asyncio
 import datetime
 import logging

@@ -8,8 +8,6 @@ ComparisonState) to find where fine-tuning changed weights,
 activations, attention patterns, and generated outputs.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 

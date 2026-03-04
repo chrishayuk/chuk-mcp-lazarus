@@ -7,8 +7,6 @@ hooks infrastructure; this module translates MCP parameters to
 CaptureConfig and serialises the results.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from typing import Any

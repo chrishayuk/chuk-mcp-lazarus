@@ -7,8 +7,6 @@ to measure information flow. Both are key tools for causal
 mechanistic interpretability.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from typing import Any

@@ -280,7 +280,6 @@ class TestLogitLensImpl:
     """Test _logit_lens_impl directly using the stubbed ModelHooks."""
 
     def test_basic_output_structure(self) -> None:
-
         model = MagicMock()
         config = MagicMock()
         tokenizer = MagicMock()
@@ -306,7 +305,6 @@ class TestLogitLensImpl:
         assert "token_text" in result
 
     def test_predictions_have_expected_fields(self) -> None:
-
         model = MagicMock()
         config = MagicMock()
         tokenizer = MagicMock()
@@ -330,7 +328,6 @@ class TestLogitLensImpl:
             assert "top_token_ids" in pred
 
     def test_summary_fields(self) -> None:
-
         model = MagicMock()
         config = MagicMock()
         tokenizer = MagicMock()
@@ -353,7 +350,6 @@ class TestLogitLensImpl:
         assert "total_layers" in summary
 
     def test_token_position_zero(self) -> None:
-
         model = MagicMock()
         config = MagicMock()
         tokenizer = MagicMock()
@@ -455,7 +451,6 @@ class TestTrackTokenImpl:
     """Test _track_token_impl directly using stubbed ModelHooks."""
 
     def test_basic_output_structure(self) -> None:
-
         model = MagicMock()
         config = MagicMock()
         tokenizer = MagicMock()
@@ -484,7 +479,6 @@ class TestTrackTokenImpl:
         assert result["token_position"] == -1
 
     def test_layer_entries_have_expected_fields(self) -> None:
-
         model = MagicMock()
         config = MagicMock()
         tokenizer = MagicMock()
@@ -509,7 +503,6 @@ class TestTrackTokenImpl:
             assert "is_top1" in entry
 
     def test_peak_probability_non_negative(self) -> None:
-
         model = MagicMock()
         config = MagicMock()
         tokenizer = MagicMock()
@@ -530,7 +523,6 @@ class TestTrackTokenImpl:
         assert result["peak_probability"] >= 0.0
 
     def test_token_position_zero(self) -> None:
-
         model = MagicMock()
         config = MagicMock()
         tokenizer = MagicMock()
@@ -642,7 +634,6 @@ class TestEmbeddingNeighborsImpl:
         return tok
 
     def test_basic_output_structure(self) -> None:
-
         model = self._make_model_with_embeddings()
         tokenizer = self._make_tokenizer()
 
@@ -663,7 +654,6 @@ class TestEmbeddingNeighborsImpl:
         assert result["vocab_size"] == 100
 
     def test_self_similarity_close_to_one(self) -> None:
-
         model = self._make_model_with_embeddings()
         tokenizer = self._make_tokenizer()
 
@@ -672,7 +662,6 @@ class TestEmbeddingNeighborsImpl:
         assert abs(result["self_similarity"] - 1.0) < 0.01
 
     def test_neighbors_do_not_include_self(self) -> None:
-
         model = self._make_model_with_embeddings()
         tokenizer = self._make_tokenizer()
 
@@ -682,7 +671,6 @@ class TestEmbeddingNeighborsImpl:
         assert 42 not in neighbor_ids
 
     def test_top_k_limits_neighbors(self) -> None:
-
         model = self._make_model_with_embeddings()
         tokenizer = self._make_tokenizer()
 
@@ -690,7 +678,6 @@ class TestEmbeddingNeighborsImpl:
         assert len(result["neighbors"]) == 3
 
     def test_unencodable_token_returns_error(self) -> None:
-
         model = self._make_model_with_embeddings()
         tokenizer = MagicMock()
         # Both bare and space-prefixed encoding return empty
@@ -702,7 +689,6 @@ class TestEmbeddingNeighborsImpl:
         assert result["error_type"] == "InvalidInput"
 
     def test_no_embedding_matrix_returns_error(self) -> None:
-
         model = MagicMock()
         # Remove embed_tokens entirely so the code finds no embedding matrix
         model.model.embed_tokens = None
@@ -717,7 +703,6 @@ class TestEmbeddingNeighborsImpl:
         assert result["error_type"] == "ExtractionFailed"
 
     def test_cosine_similarity_values_in_range(self) -> None:
-
         model = self._make_model_with_embeddings()
         tokenizer = self._make_tokenizer()
 

@@ -15,8 +15,6 @@ All tools build directly on ModelHooks to capture intermediate
 hidden states.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from typing import Any

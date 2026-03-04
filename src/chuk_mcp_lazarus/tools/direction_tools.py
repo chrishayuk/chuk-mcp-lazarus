@@ -7,8 +7,6 @@ logistic regression probe weights. Extracted directions are stored in the
 SteeringVectorRegistry for immediate use with steer_and_generate().
 """
 
-from __future__ import annotations
-
 import asyncio
 import datetime
 import logging

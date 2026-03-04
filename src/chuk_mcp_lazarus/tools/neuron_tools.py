@@ -6,8 +6,6 @@ and reports activation statistics for specific neurons (analyze_neuron).
 Uses the shared _extraction helpers — no chuk-lazarus neuron service import.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 import math

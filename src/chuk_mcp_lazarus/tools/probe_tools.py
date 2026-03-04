@@ -7,8 +7,6 @@ scan tool caches activations so each example runs a single forward pass
 through all layers, avoiding redundant computation.
 """
 
-from __future__ import annotations
-
 import asyncio
 import datetime
 import logging

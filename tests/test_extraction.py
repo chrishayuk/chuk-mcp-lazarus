@@ -11,7 +11,6 @@ from chuk_mcp_lazarus._extraction import (
 
 class TestExtractActivationAtLayer:
     def test_returns_list(self) -> None:
-
         model = MagicMock()
         config = MagicMock()
         tokenizer = MagicMock()
@@ -21,7 +20,6 @@ class TestExtractActivationAtLayer:
         assert isinstance(result, list)
 
     def test_correct_layer(self) -> None:
-
         model = MagicMock()
         config = MagicMock()
         tokenizer = MagicMock()

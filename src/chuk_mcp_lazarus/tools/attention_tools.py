@@ -7,8 +7,6 @@ computation with RoPE) since MLX's fused attention kernel doesn't
 expose intermediate attention weights.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 import math

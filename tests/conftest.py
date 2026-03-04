@@ -483,7 +483,6 @@ def _install_lazarus_stubs() -> None:
                 setattr(self, k, v)
 
         def get_activations_numpy(self, layer: int) -> Any:
-
             acts = self.hidden_states.get(layer)  # type: ignore[attr-defined]
             if acts is None:
                 return None

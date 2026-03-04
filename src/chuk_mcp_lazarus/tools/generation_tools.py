@@ -7,8 +7,6 @@ for an AI agent to understand *what* a model produces, complementing
 the interpretability tools that explain *why* it produces it.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from typing import Any
