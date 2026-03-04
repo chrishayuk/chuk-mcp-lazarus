@@ -9,6 +9,7 @@ CaptureConfig and serialises the results.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Result models
 # ---------------------------------------------------------------------------
+
 
 class ExtractionResult(BaseModel):
     """Result from extract_activations."""
@@ -59,6 +61,7 @@ class ComparisonResult(BaseModel):
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _tokenize(tokenizer: Any, prompt: str) -> mx.array:
     """Encode a prompt and return MLX token IDs."""
@@ -103,6 +106,7 @@ def _run_hooks(
 # Tools
 # ---------------------------------------------------------------------------
 
+
 @mcp.tool(read_only_hint=True, idempotent_hint=True)
 async def extract_activations(
     prompt: str,
@@ -139,41 +143,65 @@ async def extract_activations(
         )
 
     try:
-        input_ids = _tokenize(state.tokenizer, prompt)
-        num_tokens = input_ids.shape[-1]
-        tok_text = _token_text(state.tokenizer, input_ids, token_position)
-
-        captured = _run_hooks(
-            state.model, state.config, input_ids, layers,
-            capture_attention=capture_attention,
+        result = await asyncio.to_thread(
+            _extract_activations_impl,
+            state.model,
+            state.config,
+            state.tokenizer,
+            prompt,
+            layers,
+            token_position,
+            capture_attention,
         )
-
-        activations: dict[str, list[float]] = {}
-        for layer_idx in layers:
-            if layer_idx in captured.hidden_states:
-                activations[str(layer_idx)] = hidden_state_to_list(
-                    captured.hidden_states[layer_idx], position=token_position
-                )
-
-        attention_shapes: dict[str, list[int]] | None = None
-        if capture_attention and captured.attention_weights:
-            attention_shapes = {
-                str(k): list(v.shape) for k, v in captured.attention_weights.items()
-            }
-
-        result = ExtractionResult(
-            prompt=prompt,
-            token_position=token_position,
-            token_text=tok_text,
-            num_tokens=int(num_tokens),
-            activations=activations,
-            attention_shapes=attention_shapes,
-        )
-        return result.model_dump(exclude_none=True)
+        return result
 
     except Exception as e:
         logger.exception("extract_activations failed")
         return make_error(ToolError.EXTRACTION_FAILED, str(e), "extract_activations")
+
+
+def _extract_activations_impl(
+    model: Any,
+    config: Any,
+    tokenizer: Any,
+    prompt: str,
+    layers: list[int],
+    token_position: int,
+    capture_attention: bool,
+) -> dict:
+    """Sync implementation of extract_activations."""
+    input_ids = _tokenize(tokenizer, prompt)
+    num_tokens = input_ids.shape[-1]
+    tok_text = _token_text(tokenizer, input_ids, token_position)
+
+    captured = _run_hooks(
+        model,
+        config,
+        input_ids,
+        layers,
+        capture_attention=capture_attention,
+    )
+
+    activations: dict[str, list[float]] = {}
+    for layer_idx in layers:
+        if layer_idx in captured.hidden_states:
+            activations[str(layer_idx)] = hidden_state_to_list(
+                captured.hidden_states[layer_idx], position=token_position
+            )
+
+    attention_shapes: dict[str, list[int]] | None = None
+    if capture_attention and captured.attention_weights:
+        attention_shapes = {str(k): list(v.shape) for k, v in captured.attention_weights.items()}
+
+    result = ExtractionResult(
+        prompt=prompt,
+        token_position=token_position,
+        token_text=tok_text,
+        num_tokens=int(num_tokens),
+        activations=activations,
+        attention_shapes=attention_shapes,
+    )
+    return result.model_dump(exclude_none=True)
 
 
 @mcp.tool(read_only_hint=True, idempotent_hint=True)
@@ -218,36 +246,55 @@ async def compare_activations(
         )
 
     try:
-        import numpy as np
-
-        vectors: list[list[float]] = []
-        for prompt in prompts:
-            input_ids = _tokenize(state.tokenizer, prompt)
-            captured = _run_hooks(state.model, state.config, input_ids, [layer])
-            vec = hidden_state_to_list(
-                captured.hidden_states[layer], position=token_position
-            )
-            vectors.append(vec)
-
-        sim_matrix = cosine_similarity_matrix(vectors)
-        projection = pca_2d(vectors)
-
-        n = len(vectors)
-        distances = []
-        for i in range(n):
-            for j in range(i + 1, n):
-                distances.append(1.0 - sim_matrix[i][j])
-        centroid_dist = float(np.mean(distances)) if distances else 0.0
-
-        result = ComparisonResult(
-            layer=layer,
-            prompts=prompts,
-            cosine_similarity_matrix=sim_matrix,
-            pca_2d=projection,
-            centroid_distance=centroid_dist,
+        result = await asyncio.to_thread(
+            _compare_activations_impl,
+            state.model,
+            state.config,
+            state.tokenizer,
+            prompts,
+            layer,
+            token_position,
         )
-        return result.model_dump()
+        return result
 
     except Exception as e:
         logger.exception("compare_activations failed")
         return make_error(ToolError.EXTRACTION_FAILED, str(e), "compare_activations")
+
+
+def _compare_activations_impl(
+    model: Any,
+    config: Any,
+    tokenizer: Any,
+    prompts: list[str],
+    layer: int,
+    token_position: int,
+) -> dict:
+    """Sync implementation of compare_activations."""
+    import numpy as np
+
+    vectors: list[list[float]] = []
+    for prompt in prompts:
+        input_ids = _tokenize(tokenizer, prompt)
+        captured = _run_hooks(model, config, input_ids, [layer])
+        vec = hidden_state_to_list(captured.hidden_states[layer], position=token_position)
+        vectors.append(vec)
+
+    sim_matrix = cosine_similarity_matrix(vectors)
+    projection = pca_2d(vectors)
+
+    n = len(vectors)
+    distances = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            distances.append(1.0 - sim_matrix[i][j])
+    centroid_dist = float(np.mean(distances)) if distances else 0.0
+
+    result = ComparisonResult(
+        layer=layer,
+        prompts=prompts,
+        cosine_similarity_matrix=sim_matrix,
+        pca_2d=projection,
+        centroid_distance=centroid_dist,
+    )
+    return result.model_dump()

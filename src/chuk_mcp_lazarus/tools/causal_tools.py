@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 # Result models
 # ---------------------------------------------------------------------------
 
+
 class LayerEffect(BaseModel):
     """Effect of ablating a single layer on target token probability."""
 
@@ -45,9 +46,7 @@ class TraceTokenResult(BaseModel):
     prompt: str
     target_token: str
     target_token_id: int
-    baseline_prob: float = Field(
-        ..., description="Probability of target token with no ablation."
-    )
+    baseline_prob: float = Field(..., description="Probability of target token with no ablation.")
     layer_effects: list[LayerEffect] = Field(
         ..., description="Per-layer causal effect on target token."
     )
@@ -55,15 +54,9 @@ class TraceTokenResult(BaseModel):
         ...,
         description="Layers above effect_threshold, sorted by effect magnitude.",
     )
-    peak_layer: int = Field(
-        ..., description="Layer with the largest causal effect."
-    )
-    peak_effect: float = Field(
-        ..., description="Effect magnitude at the peak layer."
-    )
-    effect_threshold: float = Field(
-        ..., description="Threshold used to determine critical layers."
-    )
+    peak_layer: int = Field(..., description="Layer with the largest causal effect.")
+    peak_effect: float = Field(..., description="Effect magnitude at the peak layer.")
+    effect_threshold: float = Field(..., description="Threshold used to determine critical layers.")
 
 
 class FullCausalTraceResult(BaseModel):
@@ -71,9 +64,7 @@ class FullCausalTraceResult(BaseModel):
 
     prompt: str
     target_token: str
-    tokens: list[str] = Field(
-        ..., description="All tokens in the prompt."
-    )
+    tokens: list[str] = Field(..., description="All tokens in the prompt.")
     effects: list[list[float]] = Field(
         ...,
         description=(
@@ -85,12 +76,8 @@ class FullCausalTraceResult(BaseModel):
     critical_positions: list[int] = Field(
         ..., description="Token positions with the highest causal effects."
     )
-    critical_layers: list[int] = Field(
-        ..., description="Layers with the highest causal effects."
-    )
-    num_positions: int = Field(
-        ..., description="Number of token positions (rows in the grid)."
-    )
+    critical_layers: list[int] = Field(..., description="Layers with the highest causal effects.")
+    num_positions: int = Field(..., description="Number of token positions (rows in the grid).")
     num_layers_tested: int = Field(
         ..., description="Number of layers tested (columns in the grid)."
     )
@@ -99,6 +86,7 @@ class FullCausalTraceResult(BaseModel):
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool(read_only_hint=True, idempotent_hint=True)
 async def trace_token(
@@ -138,7 +126,7 @@ async def trace_token(
     if layers is None:
         layers = list(range(num_layers))
 
-    out_of_range = [l for l in layers if l < 0 or l >= num_layers]
+    out_of_range = [lay for lay in layers if lay < 0 or lay >= num_layers]
     if out_of_range:
         return make_error(
             ToolError.LAYER_OUT_OF_RANGE,
@@ -234,7 +222,7 @@ async def full_causal_trace(
     if layers is None:
         layers = list(range(num_layers))
 
-    out_of_range = [l for l in layers if l < 0 or l >= num_layers]
+    out_of_range = [lay for lay in layers if lay < 0 or lay >= num_layers]
     if out_of_range:
         return make_error(
             ToolError.LAYER_OUT_OF_RANGE,
@@ -261,8 +249,7 @@ async def full_causal_trace(
         )
 
         effects = [
-            [round(float(e), 6) for e in pos_effects]
-            for pos_effects in trace_result.effects
+            [round(float(e), 6) for e in pos_effects] for pos_effects in trace_result.effects
         ]
 
         result = FullCausalTraceResult(
@@ -279,6 +266,4 @@ async def full_causal_trace(
 
     except Exception as e:
         logger.exception("full_causal_trace failed")
-        return make_error(
-            ToolError.ABLATION_FAILED, str(e), "full_causal_trace"
-        )
+        return make_error(ToolError.ABLATION_FAILED, str(e), "full_causal_trace")

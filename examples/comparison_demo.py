@@ -99,7 +99,7 @@ async def main(base_id: str, ft_id: str, quick: bool = False) -> int:
         return 1
 
     print(f"\n  Parameters: {result['parameter_count']:,}")
-    param_diff = result['parameter_count'] - info['parameter_count']
+    param_diff = result["parameter_count"] - info["parameter_count"]
     print(f"  Parameter difference: {param_diff:+,}")
 
     # ==================================================================
@@ -112,11 +112,11 @@ async def main(base_id: str, ft_id: str, quick: bool = False) -> int:
     #   Marathi:    5.64 ->  4.30
     #   French:     3.76 ->  2.92 (high-resource control)
     prompts = [
-        "Translate to English: Veðrið er fallegt í dag",       # Icelandic
-        "Translate to English: Hali ya hewa ni nzuri leo",     # Swahili
-        "Translate to English: Täna on ilus ilm",              # Estonian
-        "Translate to English: आज हवामान छान आहे",              # Marathi
-        "Translate to English: Il fait beau aujourd'hui",      # French (control)
+        "Translate to English: Veðrið er fallegt í dag",  # Icelandic
+        "Translate to English: Hali ya hewa ni nzuri leo",  # Swahili
+        "Translate to English: Täna on ilus ilm",  # Estonian
+        "Translate to English: आज हवामान छान आहे",  # Marathi
+        "Translate to English: Il fait beau aujourd'hui",  # French (control)
     ]
     prompt_labels = ["Icelandic", "Swahili", "Estonian", "Marathi", "French"]
 
@@ -151,7 +151,7 @@ async def main(base_id: str, ft_id: str, quick: bool = False) -> int:
     pp("4. Compare weights", result)
     if not result.get("error"):
         print(f"\n  Components compared: {result['summary']['total_components']}")
-        print(f"\n  Top divergent layers (by avg Frobenius norm):")
+        print("\n  Top divergent layers (by avg Frobenius norm):")
         for entry in result["summary"]["top_divergent_layers"]:
             bar = "█" * int(entry["avg_frobenius"] * 200)
             print(f"    Layer {entry['layer']:>3}: {entry['avg_frobenius']:.6f} {bar}")
@@ -161,8 +161,10 @@ async def main(base_id: str, ft_id: str, quick: bool = False) -> int:
         print(f"\n  Component breakdown for layer {top_layer}:")
         layer_divs = [d for d in result["divergences"] if d["layer"] == top_layer]
         for d in sorted(layer_divs, key=lambda x: x["frobenius_norm_diff"], reverse=True):
-            print(f"    {d['component']:<12}: frob={d['frobenius_norm_diff']:.6f}  "
-                  f"cos={d['cosine_similarity']:.6f}")
+            print(
+                f"    {d['component']:<12}: frob={d['frobenius_norm_diff']:.6f}  "
+                f"cos={d['cosine_similarity']:.6f}"
+            )
     else:
         print(f"\n  Weight comparison failed: {result.get('message')}")
 
@@ -181,7 +183,7 @@ async def main(base_id: str, ft_id: str, quick: bool = False) -> int:
     result = await compare_representations(prompts=prompts, layers=repr_layers)
     pp("5. Compare representations (low-resource languages)", result)
     if not result.get("error"):
-        print(f"\n  Layer-by-layer divergence (1 - cosine_similarity):")
+        print("\n  Layer-by-layer divergence (1 - cosine_similarity):")
         print(f"  {'Layer':>5}", end="")
         for label in prompt_labels:
             print(f"  {label[:8]:>10}", end="")
@@ -194,8 +196,11 @@ async def main(base_id: str, ft_id: str, quick: bool = False) -> int:
 
             # Find per-prompt divergence for this layer
             for prompt in prompts:
-                match = [d for d in result["divergences"]
-                         if d["layer"] == layer and d["prompt"] == prompt]
+                match = [
+                    d
+                    for d in result["divergences"]
+                    if d["layer"] == layer and d["prompt"] == prompt
+                ]
                 if match:
                     div = 1.0 - match[0]["cosine_similarity"]
                     print(f"  {div:>10.4f}", end="")
@@ -204,7 +209,7 @@ async def main(base_id: str, ft_id: str, quick: bool = False) -> int:
             print()
 
         # Summary: which language has highest average divergence?
-        print(f"\n  Average divergence by language:")
+        print("\n  Average divergence by language:")
         for i, (prompt, label) in enumerate(zip(prompts, prompt_labels)):
             divs = [d for d in result["divergences"] if d["prompt"] == prompt]
             if divs:
@@ -237,16 +242,18 @@ async def main(base_id: str, ft_id: str, quick: bool = False) -> int:
     result = await compare_attention(prompt=attn_prompt, layers=attn_layers)
     pp("6. Compare attention (Icelandic prompt)", result)
     if not result.get("error"):
-        print(f"\n  Top 10 most divergent attention heads:")
+        print("\n  Top 10 most divergent attention heads:")
         print(f"  {'Layer':>5} {'Head':>5} {'JS Div':>10} {'Cos Sim':>10}")
         print("  " + "-" * 35)
         for head in result["top_divergent_heads"][:10]:
             marker = " ***" if head["js_divergence"] > 0.1 else ""
-            print(f"  {head['layer']:>5} {head['head']:>5} "
-                  f"{head['js_divergence']:>10.6f} {head['cosine_similarity']:>10.4f}{marker}")
+            print(
+                f"  {head['layer']:>5} {head['head']:>5} "
+                f"{head['js_divergence']:>10.6f} {head['cosine_similarity']:>10.4f}{marker}"
+            )
 
         # Per-layer summary
-        print(f"\n  Per-layer average JS divergence:")
+        print("\n  Per-layer average JS divergence:")
         for layer in attn_layers:
             layer_divs = [d for d in result["divergences"] if d["layer"] == layer]
             if layer_divs:
@@ -267,7 +274,7 @@ async def main(base_id: str, ft_id: str, quick: bool = False) -> int:
     # ==================================================================
     elapsed = time.time() - t0
     print(f"\n{'=' * 60}")
-    print(f"  MODEL COMPARISON DEMO COMPLETE")
+    print("  MODEL COMPARISON DEMO COMPLETE")
     print(f"  Base:       {base_id}")
     print(f"  Fine-tuned: {ft_id}")
     print(f"  Completed all 7 steps in {elapsed:.1f}s")

@@ -23,7 +23,7 @@ def ensure_optional_stubs() -> None:
             import chuk_virtual_expert  # noqa: F401
         except ImportError:
             stub = types.ModuleType("chuk_virtual_expert")
-            stub.__version__ = "0.0.0-stub"
+            stub.__version__ = "0.0.0-stub"  # type: ignore[attr-defined]
             # Create minimal stand-in classes
             for name in (
                 "VirtualExpert",

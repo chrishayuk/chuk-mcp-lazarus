@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 # Result models
 # ---------------------------------------------------------------------------
 
+
 class AttendedPosition(BaseModel):
     """A token position and its attention weight."""
 
@@ -80,14 +81,13 @@ class AttentionHeadsResult(BaseModel):
     tokens: list[str]
     num_heads_analyzed: int
     heads: list[HeadAnalysis]
-    summary: dict = Field(
-        ..., description="Most focused and most diffuse heads."
-    )
+    summary: dict = Field(..., description="Most focused and most diffuse heads.")
 
 
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool(read_only_hint=True, idempotent_hint=True)
 async def attention_pattern(
@@ -122,7 +122,7 @@ async def attention_pattern(
     if layers is None:
         layers = [0, num_layers // 2, num_layers - 1]
 
-    out_of_range = [l for l in layers if l < 0 or l >= num_layers]
+    out_of_range = [lay for lay in layers if lay < 0 or lay >= num_layers]
     if out_of_range:
         return make_error(
             ToolError.LAYER_OUT_OF_RANGE,
@@ -130,10 +130,23 @@ async def attention_pattern(
             "attention_pattern",
         )
 
+    if top_k < 1 or top_k > 100:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            f"top_k must be 1-100, got {top_k}.",
+            "attention_pattern",
+        )
+
     try:
         result = await asyncio.to_thread(
-            _attention_pattern_impl, state.model, state.config,
-            state.tokenizer, prompt, sorted(layers), token_position, top_k,
+            _attention_pattern_impl,
+            state.model,
+            state.config,
+            state.tokenizer,
+            prompt,
+            sorted(layers),
+            token_position,
+            top_k,
         )
         return result
 
@@ -185,8 +198,9 @@ def _attention_pattern_impl(
             head_weights = w[head_idx, pos, :].tolist()
 
             # Top-k attended positions
-            indices = sorted(range(len(head_weights)),
-                             key=lambda i: head_weights[i], reverse=True)[:top_k]
+            indices = sorted(range(len(head_weights)), key=lambda i: head_weights[i], reverse=True)[
+                :top_k
+            ]
             top_attended = [
                 AttendedPosition(
                     position=i,
@@ -196,17 +210,21 @@ def _attention_pattern_impl(
                 for i in indices
             ]
 
-            head_patterns.append(HeadPattern(
-                head=head_idx,
-                attention_weights=[round(w, 6) for w in head_weights],
-                top_attended=top_attended,
-            ))
+            head_patterns.append(
+                HeadPattern(
+                    head=head_idx,
+                    attention_weights=[round(w, 6) for w in head_weights],
+                    top_attended=top_attended,
+                )
+            )
 
-        patterns.append(LayerAttentionPattern(
-            layer=layer_idx,
-            num_heads=num_heads,
-            heads=head_patterns,
-        ))
+        patterns.append(
+            LayerAttentionPattern(
+                layer=layer_idx,
+                num_heads=num_heads,
+                heads=head_patterns,
+            )
+        )
 
     result = AttentionPatternResult(
         prompt=prompt,
@@ -250,7 +268,7 @@ async def attention_heads(
     if layers is None:
         layers = [0, num_layers // 2, num_layers - 1]
 
-    out_of_range = [l for l in layers if l < 0 or l >= num_layers]
+    out_of_range = [lay for lay in layers if lay < 0 or lay >= num_layers]
     if out_of_range:
         return make_error(
             ToolError.LAYER_OUT_OF_RANGE,
@@ -258,10 +276,22 @@ async def attention_heads(
             "attention_heads",
         )
 
+    if top_k < 1 or top_k > 100:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            f"top_k must be 1-100, got {top_k}.",
+            "attention_heads",
+        )
+
     try:
         result = await asyncio.to_thread(
-            _attention_heads_impl, state.model, state.config,
-            state.tokenizer, prompt, sorted(layers), top_k,
+            _attention_heads_impl,
+            state.model,
+            state.config,
+            state.tokenizer,
+            prompt,
+            sorted(layers),
+            top_k,
         )
         return result
 
@@ -316,8 +346,9 @@ def _attention_heads_impl(
             max_attn = float(mx.max(head_weights))
 
             # Top-k attended positions
-            indices = sorted(range(len(head_weights_list)),
-                             key=lambda i: head_weights_list[i], reverse=True)[:top_k]
+            indices = sorted(
+                range(len(head_weights_list)), key=lambda i: head_weights_list[i], reverse=True
+            )[:top_k]
             top_attended = [
                 AttendedPosition(
                     position=i,
@@ -327,23 +358,23 @@ def _attention_heads_impl(
                 for i in indices
             ]
 
-            heads.append(HeadAnalysis(
-                layer=layer_idx,
-                head=head_idx,
-                entropy=round(normalized_entropy, 6),
-                max_attention=round(max_attn, 6),
-                top_attended_positions=top_attended,
-            ))
+            heads.append(
+                HeadAnalysis(
+                    layer=layer_idx,
+                    head=head_idx,
+                    entropy=round(normalized_entropy, 6),
+                    max_attention=round(max_attn, 6),
+                    top_attended_positions=top_attended,
+                )
+            )
 
     # Summary: most focused (lowest entropy) and most diffuse (highest entropy)
     sorted_by_entropy = sorted(heads, key=lambda h: h.entropy)
     most_focused = [
-        {"layer": h.layer, "head": h.head, "entropy": h.entropy}
-        for h in sorted_by_entropy[:5]
+        {"layer": h.layer, "head": h.head, "entropy": h.entropy} for h in sorted_by_entropy[:5]
     ]
     most_diffuse = [
-        {"layer": h.layer, "head": h.head, "entropy": h.entropy}
-        for h in sorted_by_entropy[-5:]
+        {"layer": h.layer, "head": h.head, "entropy": h.entropy} for h in sorted_by_entropy[-5:]
     ]
 
     result = AttentionHeadsResult(

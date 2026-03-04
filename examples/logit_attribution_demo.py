@@ -35,6 +35,7 @@ import time
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def pp(label: str, result: dict) -> None:
     """Pretty-print a tool result."""
     print(f"\n{'─' * 60}")
@@ -78,6 +79,7 @@ def logit_bar(value: float, max_abs: float, width: int = 30) -> str:
 # Experiments
 # ---------------------------------------------------------------------------
 
+
 async def run_attribution(
     label: str,
     prompt: str,
@@ -105,8 +107,7 @@ async def run_attribution(
         print(f"  FAILED: {result.get('message')}")
         return None
 
-    print(f"\n  Predicted: {result['target_token']!r} "
-          f"(prob={result['model_probability']:.4f})")
+    print(f"\n  Predicted: {result['target_token']!r} (prob={result['model_probability']:.4f})")
     print(f"  Model logit (with norm): {result['model_logit']:.2f}")
     print(f"  Attribution sum (DLA):   {result['attribution_sum']:.2f}")
     print(f"  Embedding contribution:  {result['embedding_logit']:+.2f}")
@@ -118,43 +119,50 @@ async def run_attribution(
     max_abs = max(abs(v) for v in all_logits) if all_logits else 1.0
 
     # Table header
-    print(f"\n  {'Layer':>5}  {'Attn':>8}  {'FFN':>8}  "
-          f"{'Total':>8}  {'Cumul':>8}  "
-          f"{'◁ negative │ positive ▷':^30}  "
-          f"{'AttnPred':>8}  {'FFNPred':>8}")
-    print(f"  {'─' * 5}  {'─' * 8}  {'─' * 8}  "
-          f"{'─' * 8}  {'─' * 8}  "
-          f"{'─' * 30}  "
-          f"{'─' * 8}  {'─' * 8}")
+    print(
+        f"\n  {'Layer':>5}  {'Attn':>8}  {'FFN':>8}  "
+        f"{'Total':>8}  {'Cumul':>8}  "
+        f"{'◁ negative │ positive ▷':^30}  "
+        f"{'AttnPred':>8}  {'FFNPred':>8}"
+    )
+    print(
+        f"  {'─' * 5}  {'─' * 8}  {'─' * 8}  {'─' * 8}  {'─' * 8}  {'─' * 30}  {'─' * 8}  {'─' * 8}"
+    )
 
     # Embedding row
     embed_bar = logit_bar(result["embedding_logit"], max_abs)
-    print(f"  {'embed':>5}  {'':>8}  {'':>8}  "
-          f"{result['embedding_logit']:>+8.2f}  "
-          f"{result['embedding_logit']:>+8.2f}  "
-          f"{embed_bar}  "
-          f"{'':>8}  {'':>8}")
+    print(
+        f"  {'embed':>5}  {'':>8}  {'':>8}  "
+        f"{result['embedding_logit']:>+8.2f}  "
+        f"{result['embedding_logit']:>+8.2f}  "
+        f"{embed_bar}  "
+        f"{'':>8}  {'':>8}"
+    )
 
     # Per-layer rows
     for entry in result["layers"]:
         total_bar = logit_bar(entry["total_logit"], max_abs)
         attn_tok = entry["attention_top_token"][:8]
         ffn_tok = entry["ffn_top_token"][:8]
-        print(f"  {entry['layer']:>5}  "
-              f"{entry['attention_logit']:>+8.2f}  "
-              f"{entry['ffn_logit']:>+8.2f}  "
-              f"{entry['total_logit']:>+8.2f}  "
-              f"{entry['cumulative_logit']:>+8.2f}  "
-              f"{total_bar}  "
-              f"{attn_tok:>8}  "
-              f"{ffn_tok:>8}")
+        print(
+            f"  {entry['layer']:>5}  "
+            f"{entry['attention_logit']:>+8.2f}  "
+            f"{entry['ffn_logit']:>+8.2f}  "
+            f"{entry['total_logit']:>+8.2f}  "
+            f"{entry['cumulative_logit']:>+8.2f}  "
+            f"{total_bar}  "
+            f"{attn_tok:>8}  "
+            f"{ffn_tok:>8}"
+        )
 
     s = result["summary"]
-    print(f"\n  Summary:")
-    print(f"    Top positive: layer {s['top_positive_layer']} "
-          f"(logit={s['top_positive_logit']:+.2f})")
-    print(f"    Top negative: layer {s['top_negative_layer']} "
-          f"(logit={s['top_negative_logit']:+.2f})")
+    print("\n  Summary:")
+    print(
+        f"    Top positive: layer {s['top_positive_layer']} (logit={s['top_positive_logit']:+.2f})"
+    )
+    print(
+        f"    Top negative: layer {s['top_negative_layer']} (logit={s['top_negative_logit']:+.2f})"
+    )
     print(f"    Attention total: {s['total_attention_logit']:+.2f}")
     print(f"    FFN total:       {s['total_ffn_logit']:+.2f}")
     print(f"    Dominant: {s['dominant_component']}")
@@ -171,7 +179,7 @@ async def run_comparison(
     """Compare attribution profiles side by side."""
 
     print(f"\n{'=' * 60}")
-    print(f"  ATTRIBUTION COMPARISON")
+    print("  ATTRIBUTION COMPARISON")
     print(f"  A: {label_a} → {result_a['target_token']!r}")
     print(f"  B: {label_b} → {result_b['target_token']!r}")
     print(f"{'=' * 60}")
@@ -180,29 +188,35 @@ async def run_comparison(
     layers_b = {e["layer"]: e for e in result_b["layers"]}
     common = sorted(set(layers_a.keys()) & set(layers_b.keys()))
 
-    print(f"\n  {'Layer':>5}  {'Total A':>10}  {'Total B':>10}  "
-          f"{'Δ Total':>10}  {'FFN A':>10}  {'FFN B':>10}")
-    print(f"  {'─' * 5}  {'─' * 10}  {'─' * 10}  "
-          f"{'─' * 10}  {'─' * 10}  {'─' * 10}")
+    print(
+        f"\n  {'Layer':>5}  {'Total A':>10}  {'Total B':>10}  "
+        f"{'Δ Total':>10}  {'FFN A':>10}  {'FFN B':>10}"
+    )
+    print(f"  {'─' * 5}  {'─' * 10}  {'─' * 10}  {'─' * 10}  {'─' * 10}  {'─' * 10}")
 
     for layer in common:
         a = layers_a[layer]
         b = layers_b[layer]
         delta = a["total_logit"] - b["total_logit"]
-        print(f"  {layer:>5}  {a['total_logit']:>+10.2f}  "
-              f"{b['total_logit']:>+10.2f}  "
-              f"{delta:>+10.2f}  "
-              f"{a['ffn_logit']:>+10.2f}  "
-              f"{b['ffn_logit']:>+10.2f}")
+        print(
+            f"  {layer:>5}  {a['total_logit']:>+10.2f}  "
+            f"{b['total_logit']:>+10.2f}  "
+            f"{delta:>+10.2f}  "
+            f"{a['ffn_logit']:>+10.2f}  "
+            f"{b['ffn_logit']:>+10.2f}"
+        )
 
     sa = result_a["summary"]
     sb = result_b["summary"]
-    print(f"\n  A attribution sum: {result_a['attribution_sum']:+.2f}  "
-          f"model logit: {result_a['model_logit']:+.2f}")
-    print(f"  B attribution sum: {result_b['attribution_sum']:+.2f}  "
-          f"model logit: {result_b['model_logit']:+.2f}")
-    print(f"  A dominant: {sa['dominant_component']}  "
-          f"B dominant: {sb['dominant_component']}")
+    print(
+        f"\n  A attribution sum: {result_a['attribution_sum']:+.2f}  "
+        f"model logit: {result_a['model_logit']:+.2f}"
+    )
+    print(
+        f"  B attribution sum: {result_b['attribution_sum']:+.2f}  "
+        f"model logit: {result_b['model_logit']:+.2f}"
+    )
+    print(f"  A dominant: {sa['dominant_component']}  B dominant: {sb['dominant_component']}")
 
 
 async def run_pipeline(
@@ -215,13 +229,15 @@ async def run_pipeline(
     """Show the decomposition → attribution pipeline."""
 
     print(f"\n{'=' * 60}")
-    print(f"  KNOWLEDGE LOCALIZATION PIPELINE")
+    print("  KNOWLEDGE LOCALIZATION PIPELINE")
     print(f"  Prompt: {prompt!r}")
     print(f"{'=' * 60}")
 
     # Step A: Decomposition (norm-based)
     decomp = await residual_decomposition(
-        prompt=prompt, layers=layers, position=-1,
+        prompt=prompt,
+        layers=layers,
+        position=-1,
     )
     if decomp.get("error"):
         print(f"  Decomposition FAILED: {decomp.get('message')}")
@@ -236,45 +252,47 @@ async def run_pipeline(
         print(f"  Attribution FAILED: {attr.get('message')}")
         return
 
-    print(f"\n  Target: {attr['target_token']!r} "
-          f"(prob={attr['model_probability']:.4f})")
+    print(f"\n  Target: {attr['target_token']!r} (prob={attr['model_probability']:.4f})")
 
     # Combined view
     decomp_by_layer = {e["layer"]: e for e in decomp["layers"]}
     attr_by_layer = {e["layer"]: e for e in attr["layers"]}
     common = sorted(set(decomp_by_layer.keys()) & set(attr_by_layer.keys()))
 
-    print(f"\n  {'Layer':>5}  {'Norm':>8}  {'Dominant':>10}  "
-          f"{'Attn→logit':>11}  {'FFN→logit':>10}  "
-          f"{'Predicts':>10}")
-    print(f"  {'─' * 5}  {'─' * 8}  {'─' * 10}  "
-          f"{'─' * 11}  {'─' * 10}  "
-          f"{'─' * 10}")
+    print(
+        f"\n  {'Layer':>5}  {'Norm':>8}  {'Dominant':>10}  "
+        f"{'Attn→logit':>11}  {'FFN→logit':>10}  "
+        f"{'Predicts':>10}"
+    )
+    print(f"  {'─' * 5}  {'─' * 8}  {'─' * 10}  {'─' * 11}  {'─' * 10}  {'─' * 10}")
 
     for layer in common:
         d = decomp_by_layer[layer]
         a = attr_by_layer[layer]
         ffn_tok = a["ffn_top_token"][:10]
-        print(f"  {layer:>5}  {d['total_norm']:>8.1f}  "
-              f"{d['dominant_component']:>10}  "
-              f"{a['attention_logit']:>+11.2f}  "
-              f"{a['ffn_logit']:>+10.2f}  "
-              f"{ffn_tok:>10}")
+        print(
+            f"  {layer:>5}  {d['total_norm']:>8.1f}  "
+            f"{d['dominant_component']:>10}  "
+            f"{a['attention_logit']:>+11.2f}  "
+            f"{a['ffn_logit']:>+10.2f}  "
+            f"{ffn_tok:>10}"
+        )
 
-    print(f"\n  Reading the table:")
-    print(f"  - 'Norm' shows HOW MUCH each layer contributes (magnitude)")
-    print(f"  - 'Dominant' shows WHETHER attention or FFN dominates (by norm)")
-    print(f"  - 'Attn/FFN→logit' shows WHAT each component does to the")
-    print(f"    target token (positive = pushes toward, negative = away)")
-    print(f"  - 'Predicts' shows the logit lens prediction after FFN")
-    print(f"    (what the model would output if computation stopped here)")
-    print(f"\n  A layer can have a large norm (high activity) but push AWAY")
-    print(f"  from the prediction -- norm and logit attribution diverge!")
+    print("\n  Reading the table:")
+    print("  - 'Norm' shows HOW MUCH each layer contributes (magnitude)")
+    print("  - 'Dominant' shows WHETHER attention or FFN dominates (by norm)")
+    print("  - 'Attn/FFN→logit' shows WHAT each component does to the")
+    print("    target token (positive = pushes toward, negative = away)")
+    print("  - 'Predicts' shows the logit lens prediction after FFN")
+    print("    (what the model would output if computation stopped here)")
+    print("\n  A layer can have a large norm (high activity) but push AWAY")
+    print("  from the prediction -- norm and logit attribution diverge!")
 
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 async def main(model_id: str) -> int:
     from chuk_mcp_lazarus.tools.model_tools import load_model
@@ -289,7 +307,7 @@ async def main(model_id: str) -> int:
     # Step 1: Load model
     # ==================================================================
     print(f"\n{'=' * 60}")
-    print(f"  LOGIT ATTRIBUTION DEMO")
+    print("  LOGIT ATTRIBUTION DEMO")
     print(f"  Model: {model_id}")
     print(f"{'=' * 60}")
 
@@ -299,8 +317,7 @@ async def main(model_id: str) -> int:
         return 1
 
     num_layers = result["num_layers"]
-    print(f"  Loaded: {result['family']} ({num_layers} layers, "
-          f"{result['hidden_dim']} hidden dim)")
+    print(f"  Loaded: {result['family']} ({num_layers} layers, {result['hidden_dim']} hidden dim)")
 
     all_layers = list(range(num_layers))
     attr_layers = sample_layers(all_layers, max_layers=12)
@@ -330,7 +347,7 @@ async def main(model_id: str) -> int:
     # ==================================================================
     # Step 4: Attribution — phrase completion (auto-detect target)
     # ==================================================================
-    attr_c = await run_attribution(
+    await run_attribution(
         label="ATTRIBUTION C: phrase completion (auto target)",
         prompt="The cat sat on the",
         layers=attr_layers,
@@ -342,7 +359,8 @@ async def main(model_id: str) -> int:
     # ==================================================================
     if attr_a and attr_b:
         await run_comparison(
-            attr_a, attr_b,
+            attr_a,
+            attr_b,
             label_a="correct (Paris)",
             label_b="wrong (Lyon)",
         )
@@ -363,24 +381,24 @@ async def main(model_id: str) -> int:
     # ==================================================================
     elapsed = time.time() - t0
     print(f"\n{'=' * 60}")
-    print(f"  LOGIT ATTRIBUTION DEMO COMPLETE")
+    print("  LOGIT ATTRIBUTION DEMO COMPLETE")
     print(f"  Model: {model_id} ({num_layers} layers)")
     print(f"  Completed in {elapsed:.1f}s")
     print(f"{'=' * 60}")
 
-    print(f"\n  Takeaways:")
-    print(f"  - logit_attribution reveals WHERE knowledge comes from:")
-    print(f"    which layers/components push toward the predicted token")
-    print(f"  - Comparing correct vs wrong answers (Paris vs Lyon) shows")
-    print(f"    which layers discriminate -- the same layers that boost")
-    print(f"    the correct answer often suppress the wrong one")
-    print(f"  - Logit lens predictions show the model's evolving 'guess':")
-    print(f"    watch how the prediction changes layer by layer")
-    print(f"  - Attribution sum matches model logit (normalized mode)")
-    print(f"    so contributions are on the same scale as actual logits")
-    print(f"  - The pipeline view (decomposition + attribution) reveals")
-    print(f"    the difference between 'high activity' and 'helpful")
-    print(f"    activity' -- a layer can be busy but counterproductive")
+    print("\n  Takeaways:")
+    print("  - logit_attribution reveals WHERE knowledge comes from:")
+    print("    which layers/components push toward the predicted token")
+    print("  - Comparing correct vs wrong answers (Paris vs Lyon) shows")
+    print("    which layers discriminate -- the same layers that boost")
+    print("    the correct answer often suppress the wrong one")
+    print("  - Logit lens predictions show the model's evolving 'guess':")
+    print("    watch how the prediction changes layer by layer")
+    print("  - Attribution sum matches model logit (normalized mode)")
+    print("    so contributions are on the same scale as actual logits")
+    print("  - The pipeline view (decomposition + attribution) reveals")
+    print("    the difference between 'high activity' and 'helpful")
+    print("    activity' -- a layer can be busy but counterproductive")
     print()
 
     return 0

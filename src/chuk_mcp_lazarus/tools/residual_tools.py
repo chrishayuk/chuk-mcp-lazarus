@@ -1,12 +1,15 @@
 """
-Residual stream tools: decomposition, clustering, logit attribution.
+Residual stream tools: decomposition, clustering, logit attribution,
+head attribution, neuron identification.
 
 residual_decomposition decomposes each layer's contribution to the
 residual stream into attention vs MLP components.  layer_clustering
 computes representation similarity across prompts at each layer to
 reveal where prompts converge or diverge.  logit_attribution uses
 Direct Logit Attribution (DLA) to measure each component's
-contribution to the predicted token's logit.
+contribution to the predicted token's logit.  head_attribution
+drills into a single layer's attention per head.  top_neurons
+identifies the MLP neurons that contribute most.
 
 All tools build directly on ModelHooks to capture intermediate
 hidden states.
@@ -14,6 +17,7 @@ hidden states.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -34,19 +38,14 @@ logger = logging.getLogger(__name__)
 # Result models
 # ---------------------------------------------------------------------------
 
+
 class LayerContribution(BaseModel):
     """Attention vs MLP contribution at a single layer."""
 
     layer: int
-    total_norm: float = Field(
-        ..., description="L2 norm of the total residual delta at this layer."
-    )
-    attention_norm: float = Field(
-        ..., description="L2 norm of the attention sub-layer output."
-    )
-    ffn_norm: float = Field(
-        ..., description="L2 norm of the FFN/MLP sub-layer output."
-    )
+    total_norm: float = Field(..., description="L2 norm of the total residual delta at this layer.")
+    attention_norm: float = Field(..., description="L2 norm of the attention sub-layer output.")
+    ffn_norm: float = Field(..., description="L2 norm of the FFN/MLP sub-layer output.")
     attention_fraction: float = Field(
         ..., description="Attention's share of (attn_norm + ffn_norm). Range [0, 1]."
     )
@@ -82,9 +81,7 @@ class LayerSimilarity(BaseModel):
     similarity_matrix: list[list[float]] = Field(
         ..., description="Pairwise cosine similarity [n_prompts x n_prompts]."
     )
-    mean_similarity: float = Field(
-        ..., description="Average off-diagonal similarity."
-    )
+    mean_similarity: float = Field(..., description="Average off-diagonal similarity.")
     within_cluster_similarity: dict[str, float] | None = Field(
         None, description="Average similarity within each label group."
     )
@@ -127,20 +124,20 @@ class LayerAttribution(BaseModel):
     ffn_logit: float = Field(
         ..., description="FFN/MLP sub-layer's contribution to the target token logit."
     )
-    total_logit: float = Field(
-        ..., description="attention_logit + ffn_logit."
-    )
+    total_logit: float = Field(..., description="attention_logit + ffn_logit.")
     cumulative_logit: float = Field(
         ..., description="Running sum of all contributions up to and including this layer."
     )
     attention_top_token: str = Field(
-        ..., description=(
+        ...,
+        description=(
             "Normalized mode: model's top prediction after attention (logit lens). "
             "Raw DLA mode: token the attention output vector points toward."
         ),
     )
     ffn_top_token: str = Field(
-        ..., description=(
+        ...,
+        description=(
             "Normalized mode: model's top prediction after FFN (logit lens). "
             "Raw DLA mode: token the FFN output vector points toward."
         ),
@@ -158,9 +155,7 @@ class LogitAttributionResult(BaseModel):
     model_logit: float = Field(
         ..., description="Actual model logit for the target token (with final norm)."
     )
-    model_probability: float = Field(
-        ..., description="Softmax probability of the target token."
-    )
+    model_probability: float = Field(..., description="Softmax probability of the target token.")
     embedding_logit: float = Field(
         ..., description="Embedding's direct contribution to the target token logit."
     )
@@ -177,9 +172,90 @@ class LogitAttributionResult(BaseModel):
     )
 
 
+class HeadContribution(BaseModel):
+    """Per-head logit contribution at a single layer."""
+
+    head: int
+    logit_contribution: float = Field(
+        ..., description="This head's DLA contribution to the target token logit."
+    )
+    fraction_of_layer: float = Field(
+        ..., description="This head's share of the layer total. Can be negative."
+    )
+    top_token: str = Field(..., description="Token this head's output vector pushes toward most.")
+
+
+class HeadAttributionResult(BaseModel):
+    """Result from head_attribution."""
+
+    prompt: str
+    layer: int
+    token_position: int
+    token_text: str
+    target_token: str
+    target_token_id: int
+    num_heads: int
+    heads: list[HeadContribution]
+    layer_total_logit: float = Field(..., description="Sum of per-head logit contributions.")
+    summary: dict[str, Any] = Field(
+        ...,
+        description=(
+            "Summary: top_positive_head, top_negative_head, "
+            "positive_head_count, negative_head_count, "
+            "concentration (abs share of top-1 head)."
+        ),
+    )
+
+
+class NeuronContribution(BaseModel):
+    """A single neuron's contribution to the target token logit."""
+
+    neuron_index: int
+    activation: float = Field(
+        ..., description="Post-gating activation value (SwiGLU: silu(gate)*up)."
+    )
+    logit_contribution: float = Field(
+        ..., description="activation * dot(down_proj_column, unembed_vector)."
+    )
+    top_token: str = Field(..., description="Token this neuron pushes toward most strongly.")
+
+
+class TopNeuronsResult(BaseModel):
+    """Result from top_neurons."""
+
+    prompt: str
+    layer: int
+    token_position: int
+    token_text: str
+    target_token: str
+    target_token_id: int
+    mlp_type: str = Field(..., description="Detected MLP type: 'swiglu' or 'standard'.")
+    intermediate_size: int = Field(
+        ..., description="MLP intermediate dimension (number of neurons)."
+    )
+    top_k: int
+    top_positive: list[NeuronContribution] = Field(
+        ..., description="Top-k neurons pushing TOWARD the target token."
+    )
+    top_negative: list[NeuronContribution] = Field(
+        ..., description="Top-k neurons pushing AWAY from the target token."
+    )
+    total_neuron_logit: float = Field(..., description="Sum of all neuron contributions (raw DLA).")
+    summary: dict[str, Any] = Field(
+        ...,
+        description=(
+            "Summary: top_neuron_index, top_neuron_logit, "
+            "positive_neuron_count, negative_neuron_count, "
+            "concentration (abs share from top-10), "
+            "sparsity (fraction with |contribution| < 1e-4)."
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _has_sublayers(layer: Any) -> bool:
     """Check if a layer has the standard transformer sub-components."""
@@ -198,9 +274,8 @@ def _has_four_norms(layer: Any) -> bool:
     component outputs before the residual add, and use a separate
     pre_feedforward_layernorm before the MLP.
     """
-    return (
-        hasattr(layer, "pre_feedforward_layernorm")
-        and hasattr(layer, "post_feedforward_layernorm")
+    return hasattr(layer, "pre_feedforward_layernorm") and hasattr(
+        layer, "post_feedforward_layernorm"
     )
 
 
@@ -433,6 +508,7 @@ def _get_lm_projection(model: Any) -> Any:
 
     # Last resort: from ModelHooks
     from chuk_lazarus.introspection.hooks import ModelHooks
+
     helper = ModelHooks(model)
     return helper._get_lm_head()
 
@@ -447,9 +523,109 @@ def _project_to_logits(lm_head: Any, vec: mx.array) -> mx.array:
     return out[0, 0]
 
 
+def _get_embed_weight(model: Any) -> mx.array | None:
+    """Return the raw embedding weight matrix as an ``mx.array``.
+
+    Handles chuk-lazarus wrappers where ``embed_tokens.weight`` may be
+    an ``nn.Embedding`` object rather than a plain array.  In that case
+    the actual array lives at ``embed_tokens.weight.weight``.
+    """
+    inner = getattr(model, "model", model)
+    embed = getattr(inner, "embed_tokens", None)
+    if embed is None:
+        return None
+
+    w = getattr(embed, "weight", None)
+    if w is None:
+        return None
+
+    # Plain mx.array
+    if isinstance(w, mx.array):
+        return w
+
+    # nn.Embedding wrapper — real array is one level deeper
+    ww = getattr(w, "weight", None)
+    if isinstance(ww, mx.array):
+        return ww
+
+    return None
+
+
+def _get_unembed_vector(model: Any, token_id: int) -> mx.array | None:
+    """Get the unembedding vector for a specific token.
+
+    Returns the row of the output projection matrix for *token_id*.
+    For tied-embedding models this is ``embed_tokens.weight[token_id]``;
+    for separate lm_head models it is ``lm_head.weight[token_id]``.
+    Falls back to projecting a one-hot through lm_head if no direct
+    weight access is possible.
+
+    Returns a ``[hidden_dim]`` vector, or ``None`` on failure.
+    """
+    # Try tied embeddings first
+    tie = getattr(model, "tie_word_embeddings", False)
+    embed_w = _get_embed_weight(model)
+
+    if tie and embed_w is not None:
+        return embed_w[token_id]
+
+    # Try explicit lm_head weight
+    if hasattr(model, "lm_head") and model.lm_head is not None:
+        lm = model.lm_head
+        if hasattr(lm, "weight") and isinstance(lm.weight, mx.array):
+            return lm.weight[token_id]
+
+    # Try embedding weight
+    if embed_w is not None:
+        return embed_w[token_id]
+
+    # No direct weight access available — return None and let caller
+    # produce a clear error rather than allocating a huge matrix.
+    return None
+
+
+def _resolve_target_token(
+    tokenizer: Any,
+    full_logits: mx.array,
+    target_token: str | None,
+) -> tuple[int, str]:
+    """Resolve a target-token string to ``(token_id, decoded_text)``.
+
+    * If *target_token* is ``None``, returns the model's top-1 prediction.
+    * Otherwise tries both the bare string and a space-prefixed variant,
+      picks whichever has the higher model logit.
+
+    Raises ``ValueError`` if the token cannot be encoded.
+    """
+    if target_token is None:
+        tid = int(mx.argmax(full_logits).item())
+        return tid, tokenizer.decode([tid])
+
+    candidates: list[int] = []
+    for variant in (target_token, " " + target_token):
+        ids = tokenizer.encode(variant, add_special_tokens=False)
+        if ids:
+            candidates.append(ids[0])
+
+    # Deduplicate while preserving order
+    seen: set[int] = set()
+    unique: list[int] = []
+    for c in candidates:
+        if c not in seen:
+            seen.add(c)
+            unique.append(c)
+
+    if not unique:
+        raise ValueError(f"Could not encode target token {target_token!r}")
+
+    tid = max(unique, key=lambda t: float(full_logits[t].item()))
+    return tid, tokenizer.decode([tid])
+
+
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool(read_only_hint=True, idempotent_hint=True)
 async def residual_decomposition(
@@ -486,7 +662,7 @@ async def residual_decomposition(
     if layers is None:
         layers = list(range(num_layers))
 
-    out_of_range = [l for l in layers if l < 0 or l >= num_layers]
+    out_of_range = [lay for lay in layers if lay < 0 or lay >= num_layers]
     if out_of_range:
         return make_error(
             ToolError.LAYER_OUT_OF_RANGE,
@@ -500,7 +676,10 @@ async def residual_decomposition(
         tok_text = _token_text(state.tokenizer, input_ids, position)
 
         captured = _run_decomposition_forward(
-            state.model, state.config, input_ids, layers,
+            state.model,
+            state.config,
+            input_ids,
+            layers,
         )
 
         # Materialize lazy MLX arrays
@@ -548,15 +727,17 @@ async def residual_decomposition(
 
             dominant = "attention" if attn_frac > ffn_frac else "ffn"
 
-            contributions.append(LayerContribution(
-                layer=layer_idx,
-                total_norm=round(total_norm, 6),
-                attention_norm=round(attn_norm, 6),
-                ffn_norm=round(ffn_norm, 6),
-                attention_fraction=round(attn_frac, 6),
-                ffn_fraction=round(ffn_frac, 6),
-                dominant_component=dominant,
-            ))
+            contributions.append(
+                LayerContribution(
+                    layer=layer_idx,
+                    total_norm=round(total_norm, 6),
+                    attention_norm=round(attn_norm, 6),
+                    ffn_norm=round(ffn_norm, 6),
+                    attention_fraction=round(attn_frac, 6),
+                    ffn_fraction=round(ffn_frac, 6),
+                    dominant_component=dominant,
+                )
+            )
 
         # Summary
         attn_dom = sum(1 for c in contributions if c.dominant_component == "attention")
@@ -583,9 +764,7 @@ async def residual_decomposition(
 
     except Exception as e:
         logger.exception("residual_decomposition failed")
-        return make_error(
-            ToolError.EXTRACTION_FAILED, str(e), "residual_decomposition"
-        )
+        return make_error(ToolError.EXTRACTION_FAILED, str(e), "residual_decomposition")
 
 
 @mcp.tool(read_only_hint=True, idempotent_hint=True)
@@ -642,7 +821,7 @@ async def layer_clustering(
         n = num_layers
         layers = sorted(set([0, n // 4, n // 2, 3 * n // 4, n - 1]))
 
-    out_of_range = [l for l in layers if l < 0 or l >= num_layers]
+    out_of_range = [lay for lay in layers if lay < 0 or lay >= num_layers]
     if out_of_range:
         return make_error(
             ToolError.LAYER_OUT_OF_RANGE,
@@ -654,16 +833,18 @@ async def layer_clustering(
         from chuk_lazarus.introspection.hooks import CaptureConfig, ModelHooks
 
         # Collect hidden states: layer -> list of vectors (one per prompt)
-        prompt_vectors: dict[int, list[list[float]]] = {l: [] for l in layers}
+        prompt_vectors: dict[int, list[list[float]]] = {lay: [] for lay in layers}
 
         for prompt in prompts:
             input_ids = _tokenize(state.tokenizer, prompt)
 
             hooks = ModelHooks(state.model, model_config=state.config)
-            hooks.configure(CaptureConfig(
-                layers=layers,
-                capture_hidden_states=True,
-            ))
+            hooks.configure(
+                CaptureConfig(
+                    layers=layers,
+                    capture_hidden_states=True,
+                )
+            )
             hooks.forward(input_ids)
             mx.eval(hooks.state.hidden_states)
 
@@ -694,17 +875,20 @@ async def layer_clustering(
             separation = None
             if labels is not None:
                 within_sim, between_sim, separation = _compute_clustering_scores(
-                    labels, sim_matrix,
+                    labels,
+                    sim_matrix,
                 )
 
-            layer_results.append(LayerSimilarity(
-                layer=layer_idx,
-                similarity_matrix=[[round(v, 6) for v in row] for row in sim_matrix],
-                mean_similarity=round(mean_sim, 6),
-                within_cluster_similarity=within_sim,
-                between_cluster_similarity=between_sim,
-                separation_score=separation,
-            ))
+            layer_results.append(
+                LayerSimilarity(
+                    layer=layer_idx,
+                    similarity_matrix=[[round(v, 6) for v in row] for row in sim_matrix],
+                    mean_similarity=round(mean_sim, 6),
+                    within_cluster_similarity=within_sim,
+                    between_cluster_similarity=between_sim,
+                    separation_score=separation,
+                )
+            )
 
         # Summary
         most_similar = max(layer_results, key=lambda r: r.mean_similarity)
@@ -720,7 +904,7 @@ async def layer_clustering(
         if labels is not None:
             best_sep = max(
                 (r for r in layer_results if r.separation_score is not None),
-                key=lambda r: r.separation_score,
+                key=lambda r: r.separation_score or 0.0,
                 default=None,
             )
             if best_sep is not None:
@@ -745,9 +929,7 @@ async def layer_clustering(
 
     except Exception as e:
         logger.exception("layer_clustering failed")
-        return make_error(
-            ToolError.EXTRACTION_FAILED, str(e), "layer_clustering"
-        )
+        return make_error(ToolError.EXTRACTION_FAILED, str(e), "layer_clustering")
 
 
 def _norm_project(final_norm: Any, lm_head: Any, vec: mx.array) -> mx.array:
@@ -819,7 +1001,14 @@ async def logit_attribution(
             if (num_layers - 1) not in layers:
                 layers.append(num_layers - 1)
 
-    out_of_range = [l for l in layers if l < 0 or l >= num_layers]
+    if layers is not None and not layers:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            "layers must not be empty when specified.",
+            "logit_attribution",
+        )
+
+    out_of_range = [lay for lay in layers if lay < 0 or lay >= num_layers]
     if out_of_range:
         return make_error(
             ToolError.LAYER_OUT_OF_RANGE,
@@ -831,12 +1020,20 @@ async def logit_attribution(
         from chuk_lazarus.introspection.hooks import ModelHooks
 
         input_ids = _tokenize(state.tokenizer, prompt)
-        num_tokens = input_ids.shape[-1]
         tok_text = _token_text(state.tokenizer, input_ids, position)
 
-        # Run decomposition forward pass (captures attn/ffn sub-outputs)
+        # Run decomposition forward pass (captures attn/ffn sub-outputs).
+        # Always include the final layer so full_logits reflect the actual
+        # model prediction, even when the user only requests early layers.
+        num_layers = state.metadata.num_layers
+        last_layer = num_layers - 1
+        forward_layers = sorted(set(layers) | {last_layer})
+
         captured = _run_decomposition_forward(
-            state.model, state.config, input_ids, layers,
+            state.model,
+            state.config,
+            input_ids,
+            forward_layers,
         )
 
         # Get lm_head and final_norm
@@ -862,7 +1059,6 @@ async def logit_attribution(
         mx.eval(*to_eval)
 
         # Compute actual model prediction (with final norm)
-        last_layer = max(layers)
         final_hidden = captured["hidden_states"][last_layer]
         final_vec = _extract_position(final_hidden, position)
 
@@ -873,35 +1069,18 @@ async def logit_attribution(
         mx.eval(probs)
 
         # Resolve target token
-        if target_token is not None:
-            # Try both bare and space-prefixed encodings, pick the one
-            # with the higher logit.  Models tokenize " Paris" and "Paris"
-            # as different tokens; the space-prefixed form is almost always
-            # what the model produces after preceding text.
-            candidates: list[int] = []
-            for variant in (target_token, " " + target_token):
-                ids = state.tokenizer.encode(variant, add_special_tokens=False)
-                if ids:
-                    candidates.append(ids[0])
-            # Deduplicate while preserving order
-            seen: set[int] = set()
-            unique_candidates: list[int] = []
-            for c in candidates:
-                if c not in seen:
-                    seen.add(c)
-                    unique_candidates.append(c)
-            if not unique_candidates:
-                return make_error(
-                    ToolError.INVALID_INPUT,
-                    f"Could not encode target token {target_token!r}.",
-                    "logit_attribution",
-                )
-            # Pick the candidate with the highest model logit
-            target_id = max(unique_candidates, key=lambda tid: float(full_logits[tid].item()))
-            target_text = state.tokenizer.decode([target_id])
-        else:
-            target_id = int(mx.argmax(full_logits).item())
-            target_text = state.tokenizer.decode([target_id])
+        try:
+            target_id, target_text = _resolve_target_token(
+                state.tokenizer,
+                full_logits,
+                target_token,
+            )
+        except ValueError as exc:
+            return make_error(
+                ToolError.INVALID_INPUT,
+                str(exc),
+                "logit_attribution",
+            )
 
         model_logit = float(full_logits[target_id].item())
         model_prob = float(probs[target_id].item())
@@ -938,8 +1117,12 @@ async def logit_attribution(
                 logits_post = _norm_project(final_norm, lm_head, post_vec)
                 mx.eval(logits_pre, logits_post_attn, logits_post)
 
-                attn_contribution = float(logits_post_attn[target_id].item()) - float(logits_pre[target_id].item())
-                ffn_contribution = float(logits_post[target_id].item()) - float(logits_post_attn[target_id].item())
+                attn_contribution = float(logits_post_attn[target_id].item()) - float(
+                    logits_pre[target_id].item()
+                )
+                ffn_contribution = float(logits_post[target_id].item()) - float(
+                    logits_post_attn[target_id].item()
+                )
 
                 # Top tokens: logit lens prediction at each checkpoint
                 attn_top_id = int(mx.argmax(logits_post_attn).item())
@@ -979,29 +1162,35 @@ async def logit_attribution(
 
             total = attn_contribution + ffn_contribution
 
-            attributions.append(LayerAttribution(
-                layer=layer_idx,
-                attention_logit=round(attn_contribution, 6),
-                ffn_logit=round(ffn_contribution, 6),
-                total_logit=round(total, 6),
-                cumulative_logit=round(cumul, 6),
-                attention_top_token=attn_top_token,
-                ffn_top_token=ffn_top_token,
-            ))
+            attributions.append(
+                LayerAttribution(
+                    layer=layer_idx,
+                    attention_logit=round(attn_contribution, 6),
+                    ffn_logit=round(ffn_contribution, 6),
+                    total_logit=round(total, 6),
+                    cumulative_logit=round(cumul, 6),
+                    attention_top_token=attn_top_token,
+                    ffn_top_token=ffn_top_token,
+                )
+            )
 
         # attribution_sum: last cumulative value
-        attribution_sum = round(attributions[-1].cumulative_logit, 6) if attributions else round(embedding_logit, 6)
+        attribution_sum = (
+            round(attributions[-1].cumulative_logit, 6)
+            if attributions
+            else round(embedding_logit, 6)
+        )
 
         # Summary
+        top_pos: LayerAttribution | None = None
+        top_neg: LayerAttribution | None = None
+        total_attn = 0.0
+        total_ffn = 0.0
         if attributions:
             top_pos = max(attributions, key=lambda a: a.total_logit)
             top_neg = min(attributions, key=lambda a: a.total_logit)
-
             total_attn = sum(a.attention_logit for a in attributions)
             total_ffn = sum(a.ffn_logit for a in attributions)
-        else:
-            top_pos = top_neg = None
-            total_attn = total_ffn = 0.0
 
         summary: dict[str, Any] = {
             "mode": "normalized" if normalized else "raw_dla",
@@ -1032,6 +1221,613 @@ async def logit_attribution(
 
     except Exception as e:
         logger.exception("logit_attribution failed")
+        return make_error(ToolError.EXTRACTION_FAILED, str(e), "logit_attribution")
+
+
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def head_attribution(
+    prompt: str,
+    layer: int,
+    target_token: str | None = None,
+    position: int = -1,
+) -> dict:
+    """Per-head logit attribution: decompose a layer's attention into
+    individual head contributions to the target token's logit.
+
+    Uses Direct Logit Attribution (DLA) without final norm.  Each head's
+    contribution is exact because ``o_proj`` is linear -- the sum of
+    per-head contributions equals the total raw-DLA attention contribution.
+
+    Typical workflow: run ``logit_attribution`` first to find the peak
+    attention layer, then drill into that layer with ``head_attribution``.
+
+    Args:
+        prompt:        Input text.
+        layer:         Single layer index to decompose.
+        target_token:  Token to attribute (None = model's top-1 prediction).
+        position:      Token position to analyse (-1 = last token).
+
+    Returns:
+        HeadAttributionResult dict with per-head logit contributions.
+    """
+    state = ModelState.get()
+    if not state.is_loaded:
         return make_error(
-            ToolError.EXTRACTION_FAILED, str(e), "logit_attribution"
+            ToolError.MODEL_NOT_LOADED,
+            "No model loaded. Call load_model first.",
+            "head_attribution",
         )
+
+    num_layers = state.metadata.num_layers
+    if layer < 0 or layer >= num_layers:
+        return make_error(
+            ToolError.LAYER_OUT_OF_RANGE,
+            f"Layer {layer} out of range [0, {num_layers - 1}].",
+            "head_attribution",
+        )
+
+    try:
+        result = await asyncio.to_thread(
+            _head_attribution_impl,
+            state.model,
+            state.config,
+            state.tokenizer,
+            state.metadata,
+            prompt,
+            layer,
+            target_token,
+            position,
+        )
+        return result
+
+    except Exception as e:
+        logger.exception("head_attribution failed")
+        return make_error(ToolError.EXTRACTION_FAILED, str(e), "head_attribution")
+
+
+def _head_attribution_impl(
+    model: Any,
+    config: Any,
+    tokenizer: Any,
+    metadata: Any,
+    prompt: str,
+    layer: int,
+    target_token: str | None,
+    position: int,
+) -> dict:
+    """Synchronous implementation of head_attribution."""
+    from chuk_lazarus.introspection.hooks import ModelHooks
+
+    # Tokenize
+    input_ids = mx.array(tokenizer.encode(prompt, add_special_tokens=True))
+    num_tokens = input_ids.shape[-1]
+    pos = position if position >= 0 else num_tokens + position
+    pos = max(0, min(pos, num_tokens - 1))
+    tok_text = tokenizer.decode([input_ids.tolist()[pos]])
+
+    if input_ids.ndim == 1:
+        input_ids = input_ids[None, :]
+
+    # Get model components
+    helper = ModelHooks(model, model_config=config)
+    model_layers = helper._get_layers()
+    embed = helper._get_embed_tokens()
+    embedding_scale = helper._get_embedding_scale()
+    final_norm = helper._get_final_norm()
+    lm_head = _get_lm_projection(model)
+    if lm_head is None:
+        return make_error(
+            ToolError.EXTRACTION_FAILED,
+            "Could not access the language model head for this model.",
+            "head_attribution",
+        )
+
+    num_heads = metadata.num_attention_heads
+    num_kv_heads = metadata.num_kv_heads or num_heads
+    head_dim = metadata.head_dim or (metadata.hidden_dim // num_heads)
+
+    # Forward through embedding
+    h = embed(input_ids)
+    if embedding_scale is not None:
+        scale = mx.array(embedding_scale, dtype=h.dtype)
+        h = h * scale
+
+    # Forward through layers 0..layer-1
+    seq_len = input_ids.shape[1]
+    mask = nn.MultiHeadAttention.create_additive_causal_mask(seq_len)
+    mask = mask.astype(h.dtype)
+
+    for idx in range(layer):
+        ly = model_layers[idx]
+        try:
+            out = ly(h, mask=mask, cache=None)
+        except TypeError:
+            try:
+                out = ly(h, cache=None)
+            except TypeError:
+                out = ly(h)
+        if hasattr(out, "hidden_states"):
+            h = out.hidden_states
+        elif isinstance(out, tuple):
+            h = out[0]
+        else:
+            h = out
+
+    # Also get full model output for target token resolution
+    h_for_full = h
+    for idx in range(layer, len(model_layers)):
+        ly = model_layers[idx]
+        try:
+            out = ly(h_for_full, mask=mask, cache=None)
+        except TypeError:
+            try:
+                out = ly(h_for_full, cache=None)
+            except TypeError:
+                out = ly(h_for_full)
+        if hasattr(out, "hidden_states"):
+            h_for_full = out.hidden_states
+        elif isinstance(out, tuple):
+            h_for_full = out[0]
+        else:
+            h_for_full = out
+
+    final_vec = h_for_full[0, pos, :]
+    if final_norm is not None:
+        final_vec_normed = final_norm(final_vec.reshape(1, -1))[0]
+    else:
+        final_vec_normed = final_vec
+    full_logits = _project_to_logits(lm_head, final_vec_normed)
+    mx.eval(full_logits)
+
+    # Resolve target token
+    try:
+        target_id, target_text = _resolve_target_token(
+            tokenizer,
+            full_logits,
+            target_token,
+        )
+    except ValueError as exc:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            str(exc),
+            "head_attribution",
+        )
+
+    # Now decompose the target layer's attention
+    target_layer = model_layers[layer]
+    attn = target_layer.self_attn
+
+    # Apply input layernorm
+    normed = target_layer.input_layernorm(h)
+
+    # Q, K, V projections
+    queries = attn.q_proj(normed)
+    keys = attn.k_proj(normed)
+    values = attn.v_proj(normed)
+
+    batch_size = normed.shape[0]
+
+    # Reshape to [batch, heads, seq, head_dim]
+    queries = queries.reshape(batch_size, seq_len, num_heads, head_dim).transpose(0, 2, 1, 3)
+    keys = keys.reshape(batch_size, seq_len, num_kv_heads, head_dim).transpose(0, 2, 1, 3)
+    values = values.reshape(batch_size, seq_len, num_kv_heads, head_dim).transpose(0, 2, 1, 3)
+
+    # Q/K norms (Gemma-style)
+    if hasattr(attn, "q_norm") and attn.q_norm is not None:
+        queries = attn.q_norm(queries)
+    if hasattr(attn, "k_norm") and attn.k_norm is not None:
+        keys = attn.k_norm(keys)
+
+    # RoPE
+    if hasattr(attn, "rope") and attn.rope is not None:
+        queries = attn.rope(queries)
+        keys = attn.rope(keys)
+
+    # GQA repeat
+    if num_kv_heads < num_heads:
+        n_rep = num_heads // num_kv_heads
+        keys = mx.repeat(keys, n_rep, axis=1)
+        values = mx.repeat(values, n_rep, axis=1)
+
+    # SDPA → [batch, heads, seq, head_dim]
+    attn_scale = getattr(attn, "scale", head_dim**-0.5)
+    context = mx.fast.scaled_dot_product_attention(
+        queries,
+        keys,
+        values,
+        scale=attn_scale,
+        mask=mask,
+    )
+    mx.eval(context)
+
+    # Per-head output through o_proj slices
+    o_weight = attn.o_proj.weight  # [hidden_dim, num_heads * head_dim]
+
+    # Get unembed vector for efficient per-head target logit
+    u = _get_unembed_vector(model, target_id)
+    if u is None:
+        return make_error(
+            ToolError.EXTRACTION_FAILED,
+            "Could not extract unembedding vector.",
+            "head_attribution",
+        )
+    mx.eval(u)
+
+    # Extract per-head outputs at target position
+    head_results: list[HeadContribution] = []
+    head_output_vecs: list[mx.array] = []
+
+    for head_i in range(num_heads):
+        head_ctx = context[0, head_i, pos, :]  # [head_dim]
+        w_slice = o_weight[:, head_i * head_dim : (head_i + 1) * head_dim]
+        head_out = head_ctx @ w_slice.T  # [hidden_dim]
+        head_output_vecs.append(head_out)
+
+    # Batch evaluate
+    mx.eval(*head_output_vecs)
+
+    # Per-head target logits via dot product with unembed vector
+    head_logits = [float((hv * u).sum().item()) for hv in head_output_vecs]
+    layer_total = sum(head_logits)
+
+    # Batch project all heads through lm_head for top tokens
+    head_stack = mx.stack(head_output_vecs)  # [num_heads, hidden_dim]
+    all_logits = lm_head(head_stack.reshape(1, num_heads, -1))
+    if hasattr(all_logits, "logits"):
+        all_logits = all_logits.logits
+    elif isinstance(all_logits, tuple):
+        all_logits = all_logits[0]
+    all_logits = all_logits[0]  # [num_heads, vocab]
+    top_ids = mx.argmax(all_logits, axis=1)  # [num_heads]
+    mx.eval(top_ids)
+    top_ids_list = top_ids.tolist()
+
+    for head_i in range(num_heads):
+        frac = head_logits[head_i] / layer_total if abs(layer_total) > 1e-8 else 0.0
+        top_tok = tokenizer.decode([top_ids_list[head_i]])
+        head_results.append(
+            HeadContribution(
+                head=head_i,
+                logit_contribution=round(head_logits[head_i], 6),
+                fraction_of_layer=round(frac, 6),
+                top_token=top_tok,
+            )
+        )
+
+    # Summary
+    pos_heads = [h for h in head_results if h.logit_contribution > 0]
+    neg_heads = [h for h in head_results if h.logit_contribution < 0]
+    top_pos = max(head_results, key=lambda h: h.logit_contribution)
+    top_neg = min(head_results, key=lambda h: h.logit_contribution)
+    concentration = (
+        abs(top_pos.logit_contribution) / abs(layer_total) if abs(layer_total) > 1e-8 else 0.0
+    )
+
+    summary: dict[str, Any] = {
+        "top_positive_head": top_pos.head,
+        "top_positive_logit": top_pos.logit_contribution,
+        "top_negative_head": top_neg.head,
+        "top_negative_logit": top_neg.logit_contribution,
+        "positive_head_count": len(pos_heads),
+        "negative_head_count": len(neg_heads),
+        "concentration": round(concentration, 6),
+    }
+
+    result = HeadAttributionResult(
+        prompt=prompt,
+        layer=layer,
+        token_position=position,
+        token_text=tok_text,
+        target_token=target_text,
+        target_token_id=target_id,
+        num_heads=num_heads,
+        heads=head_results,
+        layer_total_logit=round(layer_total, 6),
+        summary=summary,
+    )
+    return result.model_dump()
+
+
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def top_neurons(
+    prompt: str,
+    layer: int,
+    target_token: str | None = None,
+    position: int = -1,
+    top_k: int = 20,
+) -> dict:
+    """Identify which MLP neurons contribute most to the predicted token.
+
+    Decomposes the MLP at a single layer into per-neuron logit
+    contributions using DLA.  For SwiGLU (Gemma, Llama):
+    ``hidden = silu(gate_proj(x)) * up_proj(x)``.  Each neuron's
+    contribution is ``activation[i] * dot(down_proj[:, i], unembed_vector)``.
+
+    The sum of all neuron contributions equals the total raw-DLA FFN
+    contribution for this layer.
+
+    Args:
+        prompt:       Input text.
+        layer:        Layer index to analyse.
+        target_token: Token to attribute (None = model's top-1 prediction).
+        position:     Token position (-1 = last token).
+        top_k:        Number of top neurons to return (positive + negative).
+
+    Returns:
+        TopNeuronsResult dict with top promoting and suppressing neurons.
+    """
+    state = ModelState.get()
+    if not state.is_loaded:
+        return make_error(
+            ToolError.MODEL_NOT_LOADED,
+            "No model loaded. Call load_model first.",
+            "top_neurons",
+        )
+
+    num_layers = state.metadata.num_layers
+    if layer < 0 or layer >= num_layers:
+        return make_error(
+            ToolError.LAYER_OUT_OF_RANGE,
+            f"Layer {layer} out of range [0, {num_layers - 1}].",
+            "top_neurons",
+        )
+
+    top_k = max(1, min(top_k, 200))
+
+    try:
+        result = await asyncio.to_thread(
+            _top_neurons_impl,
+            state.model,
+            state.config,
+            state.tokenizer,
+            state.metadata,
+            prompt,
+            layer,
+            target_token,
+            position,
+            top_k,
+        )
+        return result
+
+    except Exception as e:
+        logger.exception("top_neurons failed")
+        return make_error(ToolError.EXTRACTION_FAILED, str(e), "top_neurons")
+
+
+def _top_neurons_impl(
+    model: Any,
+    config: Any,
+    tokenizer: Any,
+    metadata: Any,
+    prompt: str,
+    layer: int,
+    target_token: str | None,
+    position: int,
+    top_k: int,
+) -> dict:
+    """Synchronous implementation of top_neurons."""
+    from chuk_lazarus.introspection.hooks import ModelHooks
+
+    # Tokenize
+    input_ids = mx.array(tokenizer.encode(prompt, add_special_tokens=True))
+    num_tokens = input_ids.shape[-1]
+    pos = position if position >= 0 else num_tokens + position
+    pos = max(0, min(pos, num_tokens - 1))
+    tok_text = tokenizer.decode([input_ids.tolist()[pos]])
+
+    if input_ids.ndim == 1:
+        input_ids = input_ids[None, :]
+
+    num_layers = metadata.num_layers
+    last_layer = num_layers - 1
+    layers_to_capture = sorted(set([layer, last_layer]))
+
+    # Run decomposition forward to get prev_hidden and attn_outputs
+    captured = _run_decomposition_forward(
+        model,
+        config,
+        input_ids,
+        layers_to_capture,
+    )
+
+    # Materialize
+    to_eval = list(captured["hidden_states"].values())
+    to_eval += list(captured["prev_hidden"].values())
+    to_eval += [v for v in captured["attn_outputs"].values() if v is not None]
+    mx.eval(*to_eval)
+
+    # Get model logits for target token resolution
+    helper = ModelHooks(model, model_config=config)
+    final_norm = helper._get_final_norm()
+    lm_head = _get_lm_projection(model)
+    if lm_head is None:
+        return make_error(
+            ToolError.EXTRACTION_FAILED,
+            "Could not access the language model head for this model.",
+            "top_neurons",
+        )
+
+    final_hidden = captured["hidden_states"][last_layer]
+    final_vec = _extract_position(final_hidden, pos)
+
+    if final_norm is not None:
+        final_vec_normed = final_norm(final_vec.reshape(1, -1))[0]
+    else:
+        final_vec_normed = final_vec
+    full_logits = _project_to_logits(lm_head, final_vec_normed)
+    mx.eval(full_logits)
+
+    try:
+        target_id, target_text = _resolve_target_token(
+            tokenizer,
+            full_logits,
+            target_token,
+        )
+    except ValueError as exc:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            str(exc),
+            "top_neurons",
+        )
+
+    # Reconstruct FFN input for the target layer
+    prev_h = captured["prev_hidden"][layer]
+    attn_out = captured["attn_outputs"].get(layer)
+
+    if attn_out is None:
+        return make_error(
+            ToolError.EXTRACTION_FAILED,
+            f"Layer {layer} does not have decomposable attention output.",
+            "top_neurons",
+        )
+
+    # h_post_attn = prev_hidden + attn_output (attn_output is already
+    # post-normed for Gemma 3 due to _run_decomposition_forward)
+    h_post_attn = prev_h + attn_out
+
+    target_layer = helper._get_layers()[layer]
+    mlp = target_layer.mlp
+
+    # Compute FFN input (apply correct norm)
+    if _has_four_norms(target_layer):
+        ffn_input = target_layer.pre_feedforward_layernorm(h_post_attn)
+    else:
+        ffn_input = target_layer.post_attention_layernorm(h_post_attn)
+
+    # Detect MLP type and compute post-gate activations
+    has_gate = hasattr(mlp, "gate_proj")
+    if has_gate:
+        mlp_type = "swiglu"
+        gate_out = mlp.gate_proj(ffn_input)
+        up_out = mlp.up_proj(ffn_input)
+        # Detect activation function
+        act_fn = getattr(mlp, "act", None) or getattr(mlp, "activation", None)
+        if act_fn is not None:
+            hidden_act = act_fn(gate_out) * up_out
+        else:
+            hidden_act = nn.silu(gate_out) * up_out
+    else:
+        mlp_type = "standard"
+        up_out = mlp.up_proj(ffn_input)
+        act_fn = getattr(mlp, "act", None) or getattr(mlp, "activation", None)
+        if act_fn is not None:
+            hidden_act = act_fn(up_out)
+        else:
+            hidden_act = nn.gelu(up_out)
+
+    mx.eval(hidden_act)
+
+    # Extract at target position: [intermediate_size]
+    if hidden_act.ndim == 3:
+        hidden_pos = hidden_act[0, pos, :]
+    elif hidden_act.ndim == 2:
+        hidden_pos = hidden_act[pos, :]
+    else:
+        hidden_pos = hidden_act
+
+    intermediate_size = hidden_pos.shape[0]
+
+    # Get unembed vector and compute efficient per-neuron projections
+    u = _get_unembed_vector(model, target_id)
+    if u is None:
+        return make_error(
+            ToolError.EXTRACTION_FAILED,
+            "Could not extract unembedding vector.",
+            "top_neurons",
+        )
+    mx.eval(u)
+
+    # down_proj.weight: [hidden_dim, intermediate_size]
+    down_weight = mlp.down_proj.weight
+    # neuron_projections = down_weight.T @ u → [intermediate_size]
+    neuron_projections = down_weight.T @ u
+    mx.eval(neuron_projections)
+
+    # Per-neuron logit contributions
+    neuron_logits = hidden_pos * neuron_projections  # [intermediate_size]
+    mx.eval(neuron_logits)
+
+    total_neuron_logit = float(neuron_logits.sum().item())
+
+    # Sort by absolute value to find top-k
+    abs_logits = mx.abs(neuron_logits)
+    sorted_indices = mx.argsort(abs_logits)[::-1]
+    mx.eval(sorted_indices)
+    sorted_list = sorted_indices.tolist()
+
+    # Split into positive and negative
+    neuron_logits_list = neuron_logits.tolist()
+    hidden_pos_list = hidden_pos.tolist()
+
+    pos_neurons = [(i, neuron_logits_list[i]) for i in sorted_list if neuron_logits_list[i] > 0]
+    neg_neurons = [(i, neuron_logits_list[i]) for i in sorted_list if neuron_logits_list[i] < 0]
+
+    top_pos_indices = [n[0] for n in pos_neurons[:top_k]]
+    top_neg_indices = [n[0] for n in neg_neurons[:top_k]]
+    all_top_indices = top_pos_indices + top_neg_indices
+
+    # Batch project top neurons through lm_head for top tokens
+    if all_top_indices:
+        neuron_vecs = mx.stack(
+            [hidden_pos[i] * down_weight[:, i] for i in all_top_indices]
+        )  # [n, hidden_dim]
+        batch_logits = lm_head(neuron_vecs.reshape(1, len(all_top_indices), -1))
+        if hasattr(batch_logits, "logits"):
+            batch_logits = batch_logits.logits
+        elif isinstance(batch_logits, tuple):
+            batch_logits = batch_logits[0]
+        batch_logits = batch_logits[0]  # [n, vocab]
+        batch_top_ids = mx.argmax(batch_logits, axis=1)
+        mx.eval(batch_top_ids)
+        batch_top_ids_list = batch_top_ids.tolist()
+    else:
+        batch_top_ids_list = []
+
+    # Build result lists
+    def make_contribution(idx_in_all: int, neuron_idx: int) -> NeuronContribution:
+        top_tok = tokenizer.decode([batch_top_ids_list[idx_in_all]])
+        return NeuronContribution(
+            neuron_index=neuron_idx,
+            activation=round(hidden_pos_list[neuron_idx], 6),
+            logit_contribution=round(neuron_logits_list[neuron_idx], 6),
+            top_token=top_tok,
+        )
+
+    top_positive = [make_contribution(i, idx) for i, idx in enumerate(top_pos_indices)]
+    offset = len(top_pos_indices)
+    top_negative = [make_contribution(offset + i, idx) for i, idx in enumerate(top_neg_indices)]
+
+    # Summary
+    pos_count = sum(1 for v in neuron_logits_list if v > 0)
+    neg_count = sum(1 for v in neuron_logits_list if v < 0)
+    sparse_count = sum(1 for v in neuron_logits_list if abs(v) < 1e-4)
+    sparsity = sparse_count / intermediate_size if intermediate_size > 0 else 0.0
+
+    top_10_abs = sorted(neuron_logits_list, key=lambda x: abs(x), reverse=True)[:10]
+    concentration = sum(abs(v) for v in top_10_abs) / (abs(total_neuron_logit) + 1e-8)
+
+    summary: dict[str, Any] = {
+        "top_neuron_index": sorted_list[0] if sorted_list else -1,
+        "top_neuron_logit": round(neuron_logits_list[sorted_list[0]], 6) if sorted_list else 0.0,
+        "positive_neuron_count": pos_count,
+        "negative_neuron_count": neg_count,
+        "concentration_top10": round(concentration, 6),
+        "sparsity": round(sparsity, 6),
+    }
+
+    result = TopNeuronsResult(
+        prompt=prompt,
+        layer=layer,
+        token_position=position,
+        token_text=tok_text,
+        target_token=target_text,
+        target_token_id=target_id,
+        mlp_type=mlp_type,
+        intermediate_size=intermediate_size,
+        top_k=top_k,
+        top_positive=top_positive,
+        top_negative=top_negative,
+        total_neuron_logit=round(total_neuron_logit, 6),
+        summary=summary,
+    )
+    return result.model_dump()

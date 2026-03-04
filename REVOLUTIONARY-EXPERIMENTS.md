@@ -13,45 +13,46 @@ tools we need to build, and the chuk-lazarus backend that supports them.
 
 ## The Gap: What We Have vs What We Need
 
-### What we have (26 tools)
-Layer-level observation and intervention. We can see what each layer
-produces (`logit_lens`, `extract_activations`), how layers relate
-(`compare_activations`, `attention_heads`), whether features are
-linearly decodable (`scan_probe_across_layers`), and what happens
-when we remove or modify layers (`ablate_layers`, `steer_and_generate`).
+### What we have (34 tools)
+Comprehensive layer-level and component-level observation and intervention.
+We can see what each layer produces (`logit_lens`, `extract_activations`),
+how layers relate (`compare_activations`, `attention_heads`), whether
+features are linearly decodable (`scan_probe_across_layers`), what happens
+when we remove or modify layers (`ablate_layers`, `steer_and_generate`),
+trace causal circuits (`trace_token`, `full_causal_trace`), decompose the
+residual stream (`residual_decomposition`, `logit_attribution`), drill into
+specific components (`head_attribution`, `top_neurons`), and analyze
+vocabulary geometry (`embedding_neighbors`).
 
 ### What's missing for revolutionary work
-1. **Position × layer granularity** — Current ablation/patching works
-   at whole-layer level. Real circuits operate at specific (position,
-   layer, component) tuples.
-2. **Neuron-level resolution** — We operate at 2560-dimensional
-   vectors. Individual neurons within those vectors encode specific
-   features.
-3. **Causal tracing** — We can correlate (probes) and ablate (destroy),
-   but we can't do fine-grained causal tracing (Meng et al. style
-   position × layer heatmaps).
-4. **Multiple direction methods** — We only have mean-difference
+1. **Multiple direction methods** — We only have mean-difference
    steering vectors. LDA, PCA, and probe-weight directions capture
    different aspects of the same feature.
-5. **Residual decomposition** — We can't separate attention's
-   contribution from MLP's contribution to the residual stream.
-6. **Confidence geometry** — We can't measure whether the model
+2. **Automated neuron discovery** — `top_neurons` identifies neurons
+   for a specific prediction, but we can't auto-discover neurons that
+   discriminate between prompt groups (e.g. which neurons fire for
+   French vs English).
+3. **Confidence geometry** — We can't measure whether the model
    "knows that it knows" something.
+4. **External memory** — Runtime knowledge editing without fine-tuning.
 
-### What chuk-lazarus already provides (unexposed)
-All six gaps have backend implementations. The following are available
-in chuk-lazarus but not yet wrapped as MCP tools:
+### What chuk-lazarus already provides
 
-| Capability | chuk-lazarus class | File |
+Some capabilities are now exposed as MCP tools; others remain unexposed:
+
+| Capability | Status | MCP Tool / chuk-lazarus class |
 |---|---|---|
-| Position × layer patching | `ActivationPatcher` | `introspection/patcher.py` |
-| Full causal trace | `CounterfactualIntervention` | `introspection/interventions.py` |
-| Neuron discovery | `NeuronAnalysisService` | `introspection/steering/neuron_service.py` |
-| Direction extraction (5 methods) | `DirectionExtractor` | `introspection/circuit/directions.py` |
-| Residual decomposition | `ModelAnalyzer` | `introspection/analyzer/core.py` |
-| Confidence geometry | `UncertaintyAnalysis` | `introspection/models/uncertainty.py` |
-| Circuit geometry (PCA, probes) | `GeometryAnalyzer` | `introspection/circuit/geometry.py` |
-| External memory injection | `ExternalMemory` | `introspection/external_memory.py` |
+| Position × layer patching | ✅ Exposed | `full_causal_trace`, `patch_activations` |
+| Causal tracing | ✅ Exposed | `trace_token`, `full_causal_trace` |
+| Residual decomposition | ✅ Exposed | `residual_decomposition`, `logit_attribution` |
+| Per-head attribution | ✅ Exposed | `head_attribution` |
+| Per-neuron identification | ✅ Exposed | `top_neurons` |
+| Embedding neighbors | ✅ Exposed | `embedding_neighbors` |
+| Neuron group discovery | Not yet | `NeuronAnalysisService` in `introspection/steering/neuron_service.py` |
+| Direction extraction (5 methods) | Not yet | `DirectionExtractor` in `introspection/circuit/directions.py` |
+| Confidence geometry | Not yet | `UncertaintyAnalysis` in `introspection/models/uncertainty.py` |
+| Circuit geometry (PCA, probes) | Not yet | `GeometryAnalyzer` in `introspection/circuit/geometry.py` |
+| External memory injection | Not yet | `ExternalMemory` in `introspection/external_memory.py` |
 
 ---
 
@@ -89,19 +90,18 @@ when asked about France's capital"):
    attended to by head 18.3, which routes to MLP layer 20 neurons
    [1422, 3891, 7102], which write 'Paris' into the residual stream"
 
-### Tools needed (not yet implemented)
+### Tools available today
+`logit_lens`, `track_token`, `full_causal_trace`, `trace_token`,
+`residual_decomposition`, `logit_attribution`, `head_attribution`,
+`top_neurons`, `attention_pattern`, `attention_heads`, `ablate_layers`,
+`patch_activations`, `extract_activations`
+
+### Tools still needed
 
 | Tool | Purpose | Backend |
 |------|---------|---------|
-| `full_causal_trace` | Position × layer effect heatmap | `CounterfactualIntervention.full_causal_trace()` |
-| `trace_token` | Which layers cause a specific prediction | `CounterfactualIntervention.trace_token()` |
 | `discover_neurons` | Find discriminative neurons at a layer | `NeuronAnalysisService.auto_discover_neurons()` |
 | `analyze_neuron` | Profile a specific neuron's behavior | `NeuronAnalysisService.analyze_neurons()` |
-| `residual_decomposition` | Attention vs MLP contribution per layer | `ModelAnalyzer.compute_residual_decomposition()` |
-
-### Tools that exist today
-`logit_lens`, `track_token`, `attention_pattern`, `attention_heads`,
-`ablate_layers`, `patch_activations`, `extract_activations`
 
 ---
 
@@ -134,18 +134,18 @@ or harmful association, an agent could patch it in real time.
 7. **Test side effects** — `generate_text` on unrelated prompts —
    did the injection break anything?
 
-### Tools needed (not yet implemented)
+### Tools available today
+`generate_text`, `track_token`, `trace_token`, `logit_lens`,
+`logit_attribution`, `top_neurons`, `ablate_layers`,
+`compute_steering_vector`
+
+### Tools still needed
 
 | Tool | Purpose | Backend |
 |------|---------|---------|
-| `trace_token` | Find causal layers for wrong prediction | `CounterfactualIntervention.trace_token()` |
 | `extract_direction` | Find correction direction via multiple methods | `DirectionExtractor.extract_direction()` |
 | `inject_fact` | Add fact to external memory for runtime injection | `ExternalMemory.add_facts()` |
 | `query_with_memory` | Generate with external memory active | `ExternalMemory.query()` |
-
-### Tools that exist today
-`generate_text`, `track_token`, `logit_lens`, `ablate_layers`,
-`compute_steering_vector`
 
 ---
 
@@ -193,19 +193,18 @@ the feature lives in (directions), how many neurons encode it
 (neurons), and whether attention or MLP is responsible
 (decomposition).
 
-### Tools needed (not yet implemented)
+### Tools available today
+`scan_probe_across_layers`, `logit_lens`, `track_token`,
+`trace_token`, `residual_decomposition`, `logit_attribution`,
+`head_attribution`, `top_neurons`, `layer_clustering`,
+`ablate_layers`, `extract_activations`, `attention_heads`
+
+### Tools still needed
 
 | Tool | Purpose | Backend |
 |------|---------|---------|
 | `extract_direction` | Direction via diff-means, LDA, PCA, probe weights | `DirectionExtractor` |
 | `discover_neurons` | Find feature-encoding neurons per layer | `NeuronAnalysisService` |
-| `residual_decomposition` | Attention vs MLP contribution | `ModelAnalyzer` |
-| `trace_token` | Causal necessity per layer | `CounterfactualIntervention` |
-| `layer_clustering` | Cluster prompts by representation similarity | `LayerAnalyzer` |
-
-### Tools that exist today
-`scan_probe_across_layers`, `logit_lens`, `track_token`,
-`ablate_layers`, `extract_activations`, `attention_heads`
 
 ---
 
@@ -245,18 +244,18 @@ Using two models (base + fine-tuned):
 7. **Causal delta** — `trace_token` on both models for the same
    prompt. Did the causal circuit change?
 
-### Tools needed (not yet implemented)
+### Tools available today
+`compare_generations`, `compare_weights`, `compare_representations`,
+`compare_attention`, `scan_probe_across_layers`, `logit_lens`,
+`track_token`, `trace_token`, `logit_attribution`, `head_attribution`,
+`top_neurons`
+
+### Tools still needed
 
 | Tool | Purpose | Backend |
 |------|---------|---------|
 | `extract_direction` | Compare feature directions across models | `DirectionExtractor` |
 | `discover_neurons` | Compare discriminative neurons across models | `NeuronAnalysisService` |
-| `trace_token` | Compare causal circuits across models | `CounterfactualIntervention` |
-
-### Tools that exist today
-`compare_generations`, `compare_weights`, `compare_representations`,
-`compare_attention`, `scan_probe_across_layers`, `logit_lens`,
-`track_token`
 
 ---
 
@@ -291,7 +290,12 @@ fundamental about what self-knowledge means for neural networks.
    an uncertain answer confident? Does steering toward "confident"
    on a wrong answer make the hallucination worse?
 
-### Tools needed (not yet implemented)
+### Tools available today
+`scan_probe_across_layers`, `compute_steering_vector`,
+`steer_and_generate`, `logit_lens`, `track_token`,
+`extract_activations`, `logit_attribution`, `top_neurons`
+
+### Tools still needed
 
 | Tool | Purpose | Backend |
 |------|---------|---------|
@@ -299,11 +303,6 @@ fundamental about what self-knowledge means for neural networks.
 | `measure_confidence` | Geometric uncertainty analysis | `UncertaintyAnalysis` |
 | `detect_format_gate` | Find where model decides CoT vs direct | `MetacognitiveResult` |
 | `discover_neurons` | Find neurons encoding uncertainty | `NeuronAnalysisService` |
-
-### Tools that exist today
-`scan_probe_across_layers`, `compute_steering_vector`,
-`steer_and_generate`, `logit_lens`, `track_token`,
-`extract_activations`
 
 ---
 
@@ -331,19 +330,18 @@ about how neural networks learn.
    in all three models. Are the directions similar in structure
    (even though the spaces have different dimensions)?
 
-### Tools needed (not yet implemented)
+### Tools available today
+`scan_probe_across_layers`, `logit_lens`, `track_token`,
+`attention_heads`, `ablate_layers`, `extract_activations`,
+`compare_activations`, `residual_decomposition`, `layer_clustering`,
+`logit_attribution`, `head_attribution`, `top_neurons`
+
+### Tools still needed
 
 | Tool | Purpose | Backend |
 |------|---------|---------|
 | `extract_direction` | Compare feature directions across architectures | `DirectionExtractor` |
 | `discover_neurons` | Compare neuron counts per feature | `NeuronAnalysisService` |
-| `residual_decomposition` | Compare attention vs MLP roles | `ModelAnalyzer` |
-| `layer_clustering` | Compare representation geometry | `LayerAnalyzer` |
-
-### Tools that exist today
-`scan_probe_across_layers`, `logit_lens`, `track_token`,
-`attention_heads`, `ablate_layers`, `extract_activations`,
-`compare_activations`
 
 ---
 
@@ -377,18 +375,18 @@ to say it" — the harmful association is replaced in the residual stream.
 7. **Adversarial test** — Try rephrased harmful prompts. Does the
    protection generalize?
 
-### Tools needed (not yet implemented)
+### Tools available today
+`generate_text`, `full_causal_trace`, `trace_token`, `ablate_layers`,
+`compute_steering_vector`, `steer_and_generate`,
+`scan_probe_across_layers`, `logit_attribution`
+
+### Tools still needed
 
 | Tool | Purpose | Backend |
 |------|---------|---------|
-| `full_causal_trace` | Locate harmful circuit | `CounterfactualIntervention` |
 | `extract_direction` | Find harmful direction | `DirectionExtractor` |
 | `inject_fact` | Runtime correction injection | `ExternalMemory` |
 | `query_with_memory` | Generate with corrections active | `ExternalMemory` |
-
-### Tools that exist today
-`generate_text`, `ablate_layers`, `compute_steering_vector`,
-`steer_and_generate`, `scan_probe_across_layers`
 
 ---
 
@@ -396,22 +394,25 @@ to say it" — the harmful association is replaced in the residual stream.
 
 Ordered by how many revolutionary experiments each tool unblocks:
 
-| Priority | Tool | Experiments Unblocked | Backend Ready? |
-|----------|------|-----------------------|----------------|
-| 1 | `trace_token` | 1, 2, 3, 4, 7 | Yes (`CounterfactualIntervention`) |
-| 2 | `full_causal_trace` | 1, 3, 7 | Yes (`CounterfactualIntervention`) |
-| 3 | `extract_direction` | 3, 4, 5, 6, 7 | Yes (`DirectionExtractor`) |
-| 4 | `discover_neurons` | 1, 3, 4, 5, 6 | Yes (`NeuronAnalysisService`) |
-| 5 | `residual_decomposition` | 1, 3, 6 | Yes (`ModelAnalyzer`) |
-| 6 | `measure_confidence` | 5 | Yes (`UncertaintyAnalysis`) |
-| 7 | `inject_fact` / `query_with_memory` | 2, 7 | Yes (`ExternalMemory`) |
-| 8 | `detect_format_gate` | 5 | Yes (`MetacognitiveResult`) |
-| 9 | `layer_clustering` | 3, 6 | Yes (`LayerAnalyzer`) |
-| 10 | `analyze_neuron` | 1, 3 | Yes (`NeuronAnalysisService`) |
+| Priority | Tool | Status | Experiments Unblocked |
+|----------|------|--------|----------------------|
+| 1 | `trace_token` | ✅ v0.6.0 | 1, 2, 3, 4, 7 |
+| 2 | `full_causal_trace` | ✅ v0.6.0 | 1, 3, 7 |
+| 3 | `residual_decomposition` | ✅ v0.7.0 | 1, 3, 6 |
+| 4 | `layer_clustering` | ✅ v0.7.0 | 3, 6 |
+| 5 | `logit_attribution` | ✅ v0.8.0 | 1, 3, 4 |
+| 6 | `head_attribution` | ✅ v0.9.0 | 1, 4 |
+| 7 | `top_neurons` | ✅ v0.9.0 | 1, 3, 4 |
+| 8 | `extract_direction` | **Next** | 3, 4, 5, 6, 7 |
+| 9 | `discover_neurons` | Planned | 1, 3, 4, 5, 6 |
+| 10 | `measure_confidence` | Planned | 5 |
+| 11 | `inject_fact` / `query_with_memory` | Planned | 2, 7 |
+| 12 | `detect_format_gate` | Planned | 5 |
+| 13 | `analyze_neuron` | Planned | 1, 3 |
 
-**Key insight:** `trace_token` and `extract_direction` together
-unblock 6 of the 7 revolutionary experiments. These should be the
-next implementation priority.
+**Current state:** 7 of 13 priority tools are implemented. The remaining
+high-priority items are `extract_direction` (unblocks 5 experiments) and
+`discover_neurons` (unblocks 5 experiments).
 
 ---
 

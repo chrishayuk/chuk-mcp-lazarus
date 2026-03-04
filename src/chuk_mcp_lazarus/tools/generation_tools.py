@@ -1,6 +1,6 @@
 """
 Generation and prediction tools: generate_text, predict_next_token,
-tokenize, logit_lens.
+tokenize, logit_lens, track_token, embedding_neighbors.
 
 These tools expose the model's basic I/O capabilities that are essential
 for an AI agent to understand *what* a model produces, complementing
@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Result models
 # ---------------------------------------------------------------------------
+
 
 class GenerateResult(BaseModel):
     """Result from generate_text."""
@@ -88,9 +89,7 @@ class LogitLensResult(BaseModel):
     token_text: str
     num_layers_analyzed: int
     predictions: list[LayerPredictionEntry]
-    summary: dict = Field(
-        ..., description="Where the final prediction first emerges."
-    )
+    summary: dict = Field(..., description="Where the final prediction first emerges.")
 
 
 class TokenLayerEntry(BaseModel):
@@ -118,9 +117,35 @@ class TrackTokenResult(BaseModel):
     peak_probability: float
 
 
+class NeighborToken(BaseModel):
+    """A token similar to the query in embedding space."""
+
+    token: str
+    token_id: int
+    cosine_similarity: float
+
+
+class EmbeddingNeighborsResult(BaseModel):
+    """Result from embedding_neighbors."""
+
+    query_token: str
+    query_token_id: int
+    resolved_form: str = Field(
+        ..., description="Actual form used (may differ from input due to space-prefix)."
+    )
+    embedding_dim: int
+    vocab_size: int
+    top_k: int
+    neighbors: list[NeighborToken]
+    self_similarity: float = Field(
+        ..., description="Cosine similarity of the token with itself (sanity check, ~1.0)."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool()
 async def generate_text(
@@ -159,8 +184,12 @@ async def generate_text(
         from .._generate import generate_text as _gen
 
         output, num_tokens = await asyncio.to_thread(
-            _gen, state.model, state.tokenizer, prompt,
-            max_new_tokens, temperature,
+            _gen,
+            state.model,
+            state.tokenizer,
+            prompt,
+            max_new_tokens,
+            temperature,
         )
 
         result = GenerateResult(
@@ -210,7 +239,11 @@ async def predict_next_token(
 
     try:
         predictions = await asyncio.to_thread(
-            _predict_next, state.model, state.tokenizer, prompt, top_k,
+            _predict_next,
+            state.model,
+            state.tokenizer,
+            prompt,
+            top_k,
         )
         return predictions
 
@@ -245,12 +278,14 @@ def _predict_next(model: Any, tokenizer: Any, prompt: str, top_k: int) -> dict:
     entries = []
     for tid, p, lp in zip(top_ids, top_probs, top_log_probs):
         token_text = tokenizer.decode([tid])
-        entries.append(PredictionEntry(
-            token=token_text,
-            token_id=tid,
-            probability=round(p, 6),
-            log_probability=round(lp, 4),
-        ))
+        entries.append(
+            PredictionEntry(
+                token=token_text,
+                token_id=tid,
+                probability=round(p, 6),
+                log_probability=round(lp, 4),
+            )
+        )
 
     result = PredictResult(
         prompt=prompt,
@@ -288,11 +323,13 @@ async def tokenize(
         tokens = []
         for i, tid in enumerate(token_ids):
             decoded = state.tokenizer.decode([tid])
-            tokens.append(TokenInfo(
-                position=i,
-                token_id=tid,
-                token_text=decoded,
-            ))
+            tokens.append(
+                TokenInfo(
+                    position=i,
+                    token_id=tid,
+                    token_text=decoded,
+                )
+            )
 
         result = TokenizeResult(
             text=text,
@@ -338,6 +375,13 @@ async def logit_lens(
             "logit_lens",
         )
 
+    if top_k < 1 or top_k > 100:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            f"top_k must be 1-100, got {top_k}.",
+            "logit_lens",
+        )
+
     num_layers = state.metadata.num_layers
 
     if layers is None:
@@ -350,7 +394,7 @@ async def logit_lens(
             if (num_layers - 1) not in layers:
                 layers.append(num_layers - 1)
 
-    out_of_range = [l for l in layers if l < 0 or l >= num_layers]
+    out_of_range = [lay for lay in layers if lay < 0 or lay >= num_layers]
     if out_of_range:
         return make_error(
             ToolError.LAYER_OUT_OF_RANGE,
@@ -360,8 +404,14 @@ async def logit_lens(
 
     try:
         result = await asyncio.to_thread(
-            _logit_lens_impl, state.model, state.config,
-            state.tokenizer, prompt, sorted(layers), top_k, token_position,
+            _logit_lens_impl,
+            state.model,
+            state.config,
+            state.tokenizer,
+            prompt,
+            sorted(layers),
+            top_k,
+            token_position,
         )
         return result
 
@@ -423,12 +473,14 @@ def _logit_lens_impl(
         top_probs = probs[sorted_indices].tolist()
         top_tokens = [tokenizer.decode([tid]) for tid in top_ids]
 
-        predictions.append(LayerPredictionEntry(
-            layer=layer_idx,
-            top_tokens=top_tokens,
-            top_probabilities=[round(p, 6) for p in top_probs],
-            top_token_ids=top_ids,
-        ))
+        predictions.append(
+            LayerPredictionEntry(
+                layer=layer_idx,
+                top_tokens=top_tokens,
+                top_probabilities=[round(p, 6) for p in top_probs],
+                top_token_ids=top_ids,
+            )
+        )
 
     # Summary: when does the final prediction first emerge?
     final_token = predictions[-1].top_tokens[0] if predictions else None
@@ -496,7 +548,7 @@ async def track_token(
             if (num_layers - 1) not in layers:
                 layers.append(num_layers - 1)
 
-    out_of_range = [l for l in layers if l < 0 or l >= num_layers]
+    out_of_range = [lay for lay in layers if lay < 0 or lay >= num_layers]
     if out_of_range:
         return make_error(
             ToolError.LAYER_OUT_OF_RANGE,
@@ -516,9 +568,15 @@ async def track_token(
 
     try:
         result = await asyncio.to_thread(
-            _track_token_impl, state.model, state.config,
-            state.tokenizer, prompt, sorted(layers), target_token_id,
-            token, token_position,
+            _track_token_impl,
+            state.model,
+            state.config,
+            state.tokenizer,
+            prompt,
+            sorted(layers),
+            target_token_id,
+            token,
+            token_position,
         )
         return result
 
@@ -593,12 +651,14 @@ def _track_token_impl(
             peak_probability = target_prob
             peak_layer = layer_idx
 
-        entries.append(TokenLayerEntry(
-            layer=layer_idx,
-            probability=round(target_prob, 6),
-            rank=rank,
-            is_top1=is_top1,
-        ))
+        entries.append(
+            TokenLayerEntry(
+                layer=layer_idx,
+                probability=round(target_prob, 6),
+                rank=rank,
+                is_top1=is_top1,
+            )
+        )
 
     result = TrackTokenResult(
         prompt=prompt,
@@ -610,5 +670,155 @@ def _track_token_impl(
         emergence_layer=emergence_layer,
         peak_layer=peak_layer,
         peak_probability=round(peak_probability, 6),
+    )
+    return result.model_dump()
+
+
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def embedding_neighbors(
+    token: str,
+    top_k: int = 20,
+) -> dict:
+    """Find the most similar tokens in embedding space.
+
+    Uses cosine similarity between embedding vectors.  No forward pass
+    needed -- operates directly on the static embedding matrix.
+
+    Useful for understanding vocabulary structure: which tokens the
+    model considers similar before any context is applied.
+
+    Args:
+        token:  Token string to find neighbours for (e.g. ``"Paris"``).
+        top_k:  Number of nearest neighbours to return (default: 20).
+    """
+    state = ModelState.get()
+    if not state.is_loaded:
+        return make_error(
+            ToolError.MODEL_NOT_LOADED,
+            "No model loaded. Call load_model first.",
+            "embedding_neighbors",
+        )
+
+    if top_k < 1:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            f"top_k must be >= 1, got {top_k}.",
+            "embedding_neighbors",
+        )
+    top_k = min(top_k, 100)
+
+    try:
+        result = await asyncio.to_thread(
+            _embedding_neighbors_impl,
+            state.model,
+            state.tokenizer,
+            token,
+            top_k,
+        )
+        return result
+
+    except Exception as e:
+        logger.exception("embedding_neighbors failed")
+        return make_error(ToolError.EXTRACTION_FAILED, str(e), "embedding_neighbors")
+
+
+def _embedding_neighbors_impl(
+    model: Any,
+    tokenizer: Any,
+    token: str,
+    top_k: int,
+) -> dict:
+    """Synchronous implementation of embedding_neighbors."""
+    # Resolve token to a single token id
+    # Try bare encoding first, then space-prefixed
+    token_id = None
+    resolved_form = token
+
+    for variant in (token, " " + token):
+        ids = tokenizer.encode(variant, add_special_tokens=False)
+        if ids:
+            token_id = ids[0]
+            resolved_form = tokenizer.decode([token_id])
+            break
+
+    if token_id is None:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            f"Could not encode token {token!r}.",
+            "embedding_neighbors",
+        )
+
+    # Get embedding matrix — handle chuk-lazarus wrappers where
+    # embed_tokens.weight may be nn.Embedding rather than mx.array
+    inner = getattr(model, "model", model)
+    embed = getattr(inner, "embed_tokens", None)
+    W = None
+    if embed is not None:
+        w = getattr(embed, "weight", None)
+        if isinstance(w, mx.array):
+            W = w
+        elif w is not None:
+            # nn.Embedding wrapper — actual array one level deeper
+            ww = getattr(w, "weight", None)
+            if isinstance(ww, mx.array):
+                W = ww
+
+    if W is None:
+        return make_error(
+            ToolError.EXTRACTION_FAILED,
+            "Could not access embedding matrix.",
+            "embedding_neighbors",
+        )
+
+    vocab_size, hidden_dim = W.shape
+
+    # Target vector
+    target_vec = W[token_id]  # [hidden_dim]
+
+    # Compute all cosine similarities in one matrix-vector multiply
+    # sims = (W @ target) / (||W|| * ||target||)
+    dots = W @ target_vec  # [vocab_size]
+    norms = mx.sqrt(mx.sum(W * W, axis=1))  # [vocab_size]
+    target_norm = mx.sqrt(mx.sum(target_vec * target_vec))
+
+    # Avoid division by zero
+    denom = norms * target_norm + 1e-8
+    sims = dots / denom
+
+    # Clamp for bfloat16 safety
+    sims = mx.clip(sims, -1.0, 1.0)
+    mx.eval(sims)
+
+    # Self similarity
+    self_sim = float(sims[token_id].item())
+
+    # Sort descending and take top_k+1 (to skip self)
+    sorted_indices = mx.argsort(sims)[::-1]
+    mx.eval(sorted_indices)
+    sorted_list = sorted_indices.tolist()
+
+    neighbors: list[NeighborToken] = []
+    for idx in sorted_list:
+        if idx == token_id:
+            continue
+        neighbors.append(
+            NeighborToken(
+                token=tokenizer.decode([idx]),
+                token_id=idx,
+                cosine_similarity=round(float(sims[idx].item()), 6),
+            )
+        )
+        if len(neighbors) >= top_k:
+            break
+
+    result = EmbeddingNeighborsResult(
+        query_token=token,
+        query_token_id=token_id,
+        resolved_form=resolved_form,
+        embedding_dim=hidden_dim,
+        vocab_size=vocab_size,
+        top_k=top_k,
+        neighbors=neighbors,
+        self_similarity=round(self_sim, 6),
     )
     return result.model_dump()

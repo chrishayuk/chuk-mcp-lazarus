@@ -43,5 +43,5 @@ class ToolErrorResult(BaseModel):
 def make_error(error_type: ToolError, message: str, tool: str) -> dict:
     """Build a structured error envelope as a JSON-safe dict."""
     return ToolErrorResult(
-        error_type=error_type, message=message, tool=tool
+        error=True, error_type=error_type, message=message, tool=tool
     ).model_dump()

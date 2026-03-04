@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 # Result models
 # ---------------------------------------------------------------------------
 
+
 class LoadComparisonResult(BaseModel):
     """Result from load_comparison_model."""
 
@@ -51,12 +52,8 @@ class WeightDivergenceResult(BaseModel):
     primary_model: str
     comparison_model: str
     num_layers_compared: int
-    divergences: list[dict] = Field(
-        ..., description="Per-layer, per-component weight divergence."
-    )
-    summary: dict = Field(
-        ..., description="Top divergent layers and overall statistics."
-    )
+    divergences: list[dict] = Field(..., description="Per-layer, per-component weight divergence.")
+    summary: dict = Field(..., description="Top divergent layers and overall statistics.")
 
 
 class RepresentationDivergenceResult(BaseModel):
@@ -66,9 +63,7 @@ class RepresentationDivergenceResult(BaseModel):
     comparison_model: str
     num_prompts: int
     num_layers_compared: int
-    divergences: list[dict] = Field(
-        ..., description="Per-layer, per-prompt activation divergence."
-    )
+    divergences: list[dict] = Field(..., description="Per-layer, per-prompt activation divergence.")
     layer_averages: list[dict] = Field(
         ..., description="Average divergence per layer across prompts."
     )
@@ -81,12 +76,8 @@ class AttentionDivergenceResult(BaseModel):
     comparison_model: str
     prompt: str
     num_layers_compared: int
-    divergences: list[dict] = Field(
-        ..., description="Per-layer, per-head attention divergence."
-    )
-    top_divergent_heads: list[dict] = Field(
-        ..., description="Heads with highest JS divergence."
-    )
+    divergences: list[dict] = Field(..., description="Per-layer, per-head attention divergence.")
+    top_divergent_heads: list[dict] = Field(..., description="Heads with highest JS divergence.")
 
 
 class CompareGenerationsResult(BaseModel):
@@ -113,12 +104,33 @@ class UnloadComparisonResult(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
+
+def _require_comparison_models(tool_name: str) -> tuple | dict:
+    """Validate both models loaded and compatible. Returns (primary, comp) or error dict."""
+    primary = ModelState.get()
+    if not primary.is_loaded:
+        return make_error(ToolError.MODEL_NOT_LOADED, "Call load_model() first.", tool_name)
+
+    comp = ComparisonState.get()
+    if not comp.is_loaded:
+        return make_error(
+            ToolError.MODEL_NOT_LOADED, "Call load_comparison_model() first.", tool_name
+        )
+
+    try:
+        comp.require_compatible(primary.metadata)
+    except ValueError as e:
+        return make_error(ToolError.COMPARISON_INCOMPATIBLE, str(e), tool_name)
+
+    return (primary, comp)
+
+
 def _validate_layers(layers: list[int] | None, num_layers: int) -> list[int]:
     """Validate and normalize layer list."""
     if layers is None:
         return list(range(num_layers))
 
-    out_of_range = [l for l in layers if l < 0 or l >= num_layers]
+    out_of_range = [lay for lay in layers if lay < 0 or lay >= num_layers]
     if out_of_range:
         raise ValueError(f"Layers {out_of_range} out of range [0, {num_layers - 1}].")
     return sorted(set(layers))
@@ -127,6 +139,7 @@ def _validate_layers(layers: list[int] | None, num_layers: int) -> list[int]:
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool()
 async def load_comparison_model(
@@ -188,26 +201,10 @@ async def compare_weights(
     Args:
         layers: Layer indices to compare. None = all layers.
     """
-    primary = ModelState.get()
-    if not primary.is_loaded:
-        return make_error(
-            ToolError.MODEL_NOT_LOADED,
-            "Call load_model() first.",
-            "compare_weights",
-        )
-
-    comp = ComparisonState.get()
-    if not comp.is_loaded:
-        return make_error(
-            ToolError.MODEL_NOT_LOADED,
-            "Call load_comparison_model() first.",
-            "compare_weights",
-        )
-
-    try:
-        comp.require_compatible(primary.metadata)
-    except ValueError as e:
-        return make_error(ToolError.COMPARISON_INCOMPATIBLE, str(e), "compare_weights")
+    guard = _require_comparison_models("compare_weights")
+    if isinstance(guard, dict):
+        return guard
+    primary, comp = guard
 
     try:
         validated = _validate_layers(layers, primary.metadata.num_layers)
@@ -226,8 +223,8 @@ async def compare_weights(
 
         layer_avgs = sorted(
             [
-                {"layer": l, "avg_frobenius": round(sum(v) / len(v), 6)}
-                for l, v in layer_totals.items()
+                {"layer": lay, "avg_frobenius": round(sum(v) / len(v), 6)}
+                for lay, v in layer_totals.items()
             ],
             key=lambda x: x["avg_frobenius"],
             reverse=True,
@@ -268,26 +265,10 @@ async def compare_representations(
         layers:         Layer indices to compare. None = all layers.
         token_position: Token position (-1 = last).
     """
-    primary = ModelState.get()
-    if not primary.is_loaded:
-        return make_error(
-            ToolError.MODEL_NOT_LOADED,
-            "Call load_model() first.",
-            "compare_representations",
-        )
-
-    comp = ComparisonState.get()
-    if not comp.is_loaded:
-        return make_error(
-            ToolError.MODEL_NOT_LOADED,
-            "Call load_comparison_model() first.",
-            "compare_representations",
-        )
-
-    try:
-        comp.require_compatible(primary.metadata)
-    except ValueError as e:
-        return make_error(ToolError.COMPARISON_INCOMPATIBLE, str(e), "compare_representations")
+    guard = _require_comparison_models("compare_representations")
+    if isinstance(guard, dict):
+        return guard
+    primary, comp = guard
 
     if not 1 <= len(prompts) <= 8:
         return make_error(
@@ -321,11 +302,11 @@ async def compare_representations(
 
         layer_avgs = [
             {
-                "layer": l,
+                "layer": lay,
                 "avg_cosine_similarity": round(sum(v) / len(v), 6),
                 "avg_divergence": round(1.0 - sum(v) / len(v), 6),
             }
-            for l, v in sorted(layer_sums.items())
+            for lay, v in sorted(layer_sums.items())
         ]
 
         result = RepresentationDivergenceResult(
@@ -358,26 +339,10 @@ async def compare_attention(
         prompt: Input text.
         layers: Layer indices to compare. None = all layers.
     """
-    primary = ModelState.get()
-    if not primary.is_loaded:
-        return make_error(
-            ToolError.MODEL_NOT_LOADED,
-            "Call load_model() first.",
-            "compare_attention",
-        )
-
-    comp = ComparisonState.get()
-    if not comp.is_loaded:
-        return make_error(
-            ToolError.MODEL_NOT_LOADED,
-            "Call load_comparison_model() first.",
-            "compare_attention",
-        )
-
-    try:
-        comp.require_compatible(primary.metadata)
-    except ValueError as e:
-        return make_error(ToolError.COMPARISON_INCOMPATIBLE, str(e), "compare_attention")
+    guard = _require_comparison_models("compare_attention")
+    if isinstance(guard, dict):
+        return guard
+    primary, comp = guard
 
     try:
         validated = _validate_layers(layers, primary.metadata.num_layers)
@@ -432,19 +397,15 @@ async def compare_generations(
         max_new_tokens: Maximum tokens to generate (default: 100).
         temperature:    Sampling temperature. 0 = greedy (default).
     """
-    primary = ModelState.get()
-    if not primary.is_loaded:
-        return make_error(
-            ToolError.MODEL_NOT_LOADED,
-            "Call load_model() first.",
-            "compare_generations",
-        )
+    guard = _require_comparison_models("compare_generations")
+    if isinstance(guard, dict):
+        return guard
+    primary, comp = guard
 
-    comp = ComparisonState.get()
-    if not comp.is_loaded:
+    if max_new_tokens < 1 or max_new_tokens > 1000:
         return make_error(
-            ToolError.MODEL_NOT_LOADED,
-            "Call load_comparison_model() first.",
+            ToolError.INVALID_INPUT,
+            f"max_new_tokens must be 1-1000, got {max_new_tokens}.",
             "compare_generations",
         )
 
@@ -452,12 +413,20 @@ async def compare_generations(
         from .._generate import generate_text as _gen
 
         primary_out, primary_tokens = await asyncio.to_thread(
-            _gen, primary.model, primary.tokenizer, prompt,
-            max_new_tokens, temperature,
+            _gen,
+            primary.model,
+            primary.tokenizer,
+            prompt,
+            max_new_tokens,
+            temperature,
         )
         comp_out, comp_tokens = await asyncio.to_thread(
-            _gen, comp.model, comp.tokenizer, prompt,
-            max_new_tokens, temperature,
+            _gen,
+            comp.model,
+            comp.tokenizer,
+            prompt,
+            max_new_tokens,
+            temperature,
         )
 
         result = CompareGenerationsResult(

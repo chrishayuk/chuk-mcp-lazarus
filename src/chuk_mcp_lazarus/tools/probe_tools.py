@@ -9,15 +9,15 @@ through all layers, avoiding redundant computation.
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import logging
 from typing import Any
 
-import mlx.core as mx
 import numpy as np
 from pydantic import BaseModel, Field
 
-from .._serialize import hidden_state_to_list
+from .._extraction import extract_activation_at_layer, extract_activations_all_layers
 from ..errors import ToolError, make_error
 from ..model_state import ModelState
 from ..probe_store import ProbeMetadata, ProbeRegistry, ProbeType
@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Result models
 # ---------------------------------------------------------------------------
+
 
 class TrainProbeResult(BaseModel):
     """Result from train_probe."""
@@ -87,50 +88,6 @@ class ListProbesResult(BaseModel):
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _extract_activation_at_layer(
-    model: Any,
-    config: Any,
-    tokenizer: Any,
-    prompt: str,
-    layer: int,
-    token_position: int = -1,
-) -> list[float]:
-    """Extract a single activation vector for one prompt at one layer."""
-    from chuk_lazarus.introspection.hooks import CaptureConfig, ModelHooks
-
-    input_ids = mx.array(tokenizer.encode(prompt, add_special_tokens=True))
-    hooks = ModelHooks(model, model_config=config)
-    hooks.configure(CaptureConfig(layers=[layer], capture_hidden_states=True))
-    hooks.forward(input_ids)
-    mx.eval(hooks.state.hidden_states)
-    return hidden_state_to_list(hooks.state.hidden_states[layer], position=token_position)
-
-
-def _extract_activations_all_layers(
-    model: Any,
-    config: Any,
-    tokenizer: Any,
-    prompt: str,
-    layers: list[int],
-    token_position: int = -1,
-) -> dict[int, list[float]]:
-    """Extract activations at multiple layers from a single forward pass."""
-    from chuk_lazarus.introspection.hooks import CaptureConfig, ModelHooks
-
-    input_ids = mx.array(tokenizer.encode(prompt, add_special_tokens=True))
-    hooks = ModelHooks(model, model_config=config)
-    hooks.configure(CaptureConfig(layers=layers, capture_hidden_states=True))
-    hooks.forward(input_ids)
-    mx.eval(hooks.state.hidden_states)
-
-    result: dict[int, list[float]] = {}
-    for layer in layers:
-        if layer in hooks.state.hidden_states:
-            result[layer] = hidden_state_to_list(
-                hooks.state.hidden_states[layer], position=token_position
-            )
-    return result
-
 
 def _train_sklearn_probe(
     X: np.ndarray,
@@ -148,9 +105,7 @@ def _train_sklearn_probe(
     from sklearn.neural_network import MLPClassifier
 
     if probe_type == ProbeType.LINEAR:
-        clf = LogisticRegression(
-            max_iter=1000, random_state=random_seed, C=1.0
-        )
+        clf = LogisticRegression(max_iter=1000, random_state=random_seed, C=1.0)
     else:
         clf = MLPClassifier(
             hidden_layer_sizes=(64,),
@@ -190,6 +145,7 @@ def _coefficients_norm(clf: Any) -> float | None:
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool()
 async def train_probe(
@@ -256,62 +212,92 @@ async def train_probe(
                 "train_probe",
             )
 
+    labels_raw = [ex["label"] for ex in examples]
+    classes = sorted(set(labels_raw))
+    if len(classes) < 2:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            "Need at least 2 distinct labels.",
+            "train_probe",
+        )
+
     try:
-        # Extract activations
-        labels_raw = [ex["label"] for ex in examples]
-        classes = sorted(set(labels_raw))
-        if len(classes) < 2:
-            return make_error(
-                ToolError.INVALID_INPUT,
-                "Need at least 2 distinct labels.",
-                "train_probe",
-            )
-
-        label_to_idx = {label: idx for idx, label in enumerate(classes)}
-        y = np.array([label_to_idx[label] for label in labels_raw])
-
-        X_list: list[list[float]] = []
-        for ex in examples:
-            vec = _extract_activation_at_layer(
-                state.model, state.config, state.tokenizer,
-                ex["prompt"], layer, token_position,
-            )
-            X_list.append(vec)
-        X = np.array(X_list, dtype=np.float32)
-
-        # Train
-        clf, train_acc, val_acc = _train_sklearn_probe(X, y, ptype)
-        coef_norm = _coefficients_norm(clf)
-
-        # Store
-        metadata = ProbeMetadata(
-            name=probe_name,
-            layer=layer,
-            probe_type=ptype,
-            classes=classes,
-            num_examples=len(examples),
-            train_accuracy=train_acc,
-            val_accuracy=val_acc,
-            coefficients_norm=coef_norm,
-            trained_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        result = await asyncio.to_thread(
+            _train_probe_impl,
+            state.model,
+            state.config,
+            state.tokenizer,
+            probe_name,
+            layer,
+            examples,
+            labels_raw,
+            classes,
+            ptype,
+            token_position,
         )
-        ProbeRegistry.get().store(probe_name, clf, metadata)
-
-        result = TrainProbeResult(
-            probe_name=probe_name,
-            layer=layer,
-            probe_type=ptype,
-            num_examples=len(examples),
-            classes=classes,
-            train_accuracy=train_acc,
-            val_accuracy=val_acc,
-            coefficients_norm=coef_norm,
-        )
-        return result.model_dump()
+        return result
 
     except Exception as e:
         logger.exception("train_probe failed")
         return make_error(ToolError.TRAINING_FAILED, str(e), "train_probe")
+
+
+def _train_probe_impl(
+    model: Any,
+    config: Any,
+    tokenizer: Any,
+    probe_name: str,
+    layer: int,
+    examples: list[dict],
+    labels_raw: list[str],
+    classes: list[str],
+    ptype: ProbeType,
+    token_position: int,
+) -> dict:
+    """Sync implementation of train_probe."""
+    label_to_idx = {label: idx for idx, label in enumerate(classes)}
+    y = np.array([label_to_idx[label] for label in labels_raw])
+
+    X_list: list[list[float]] = []
+    for ex in examples:
+        vec = extract_activation_at_layer(
+            model,
+            config,
+            tokenizer,
+            ex["prompt"],
+            layer,
+            token_position,
+        )
+        X_list.append(vec)
+    X = np.array(X_list, dtype=np.float32)
+
+    clf, train_acc, val_acc = _train_sklearn_probe(X, y, ptype)
+    coef_norm = _coefficients_norm(clf)
+
+    metadata = ProbeMetadata(
+        name=probe_name,
+        layer=layer,
+        probe_type=ptype,
+        classes=classes,
+        num_examples=len(examples),
+        train_accuracy=train_acc,
+        val_accuracy=val_acc,
+        coefficients_norm=coef_norm,
+        trained_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    )
+    ProbeRegistry.get().store(probe_name, clf, metadata)
+
+    result = TrainProbeResult(
+        probe_name=probe_name,
+        layer=layer,
+        probe_type=ptype,
+        num_examples=len(examples),
+        classes=classes,
+        train_accuracy=train_acc,
+        val_accuracy=val_acc,
+        coefficients_norm=coef_norm,
+    )
+    return result.model_dump()
 
 
 @mcp.tool(read_only_hint=True, idempotent_hint=True)
@@ -367,75 +353,98 @@ async def evaluate_probe(
             )
 
     try:
-        labels_raw = [ex["label"] for ex in examples]
-        class_to_idx = {label: idx for idx, label in enumerate(meta.classes)}
-
-        # Extract activations
-        X_list: list[list[float]] = []
-        for ex in examples:
-            vec = _extract_activation_at_layer(
-                state.model, state.config, state.tokenizer,
-                ex["prompt"], meta.layer, token_position,
-            )
-            X_list.append(vec)
-        X = np.array(X_list, dtype=np.float32)
-
-        # Predict
-        y_pred_idx = clf.predict(X)
-        y_proba = clf.predict_proba(X) if hasattr(clf, "predict_proba") else None
-
-        # Build predictions list
-        predictions: list[dict[str, Any]] = []
-        correct = 0
-        for i, ex in enumerate(examples):
-            predicted_label = meta.classes[int(y_pred_idx[i])]
-            confidence = float(y_proba[i].max()) if y_proba is not None else None
-            is_correct = predicted_label == ex["label"]
-            if is_correct:
-                correct += 1
-            pred = {
-                "prompt": ex["prompt"],
-                "true_label": ex["label"],
-                "predicted_label": predicted_label,
-                "correct": is_correct,
-            }
-            if confidence is not None:
-                pred["confidence"] = round(confidence, 4)
-            predictions.append(pred)
-
-        accuracy = correct / len(examples)
-
-        # Per-class accuracy
-        per_class: dict[str, float] = {}
-        for cls in meta.classes:
-            cls_examples = [p for p in predictions if p["true_label"] == cls]
-            if cls_examples:
-                per_class[cls] = sum(1 for p in cls_examples if p["correct"]) / len(cls_examples)
-            else:
-                per_class[cls] = 0.0
-
-        # Confusion matrix
-        n_classes = len(meta.classes)
-        confusion = [[0] * n_classes for _ in range(n_classes)]
-        for pred in predictions:
-            true_idx = class_to_idx.get(pred["true_label"])
-            pred_idx = class_to_idx.get(pred["predicted_label"])
-            if true_idx is not None and pred_idx is not None:
-                confusion[true_idx][pred_idx] += 1
-
-        result = EvaluateProbeResult(
-            probe_name=probe_name,
-            layer=meta.layer,
-            accuracy=accuracy,
-            per_class_accuracy=per_class,
-            confusion_matrix=confusion,
-            predictions=predictions,
+        result = await asyncio.to_thread(
+            _evaluate_probe_impl,
+            state.model,
+            state.config,
+            state.tokenizer,
+            probe_name,
+            clf,
+            meta,
+            examples,
+            token_position,
         )
-        return result.model_dump()
+        return result
 
     except Exception as e:
         logger.exception("evaluate_probe failed")
         return make_error(ToolError.EVALUATION_FAILED, str(e), "evaluate_probe")
+
+
+def _evaluate_probe_impl(
+    model: Any,
+    config: Any,
+    tokenizer: Any,
+    probe_name: str,
+    clf: Any,
+    meta: ProbeMetadata,
+    examples: list[dict],
+    token_position: int,
+) -> dict:
+    """Sync implementation of evaluate_probe."""
+    class_to_idx = {label: idx for idx, label in enumerate(meta.classes)}
+
+    X_list: list[list[float]] = []
+    for ex in examples:
+        vec = extract_activation_at_layer(
+            model,
+            config,
+            tokenizer,
+            ex["prompt"],
+            meta.layer,
+            token_position,
+        )
+        X_list.append(vec)
+    X = np.array(X_list, dtype=np.float32)
+
+    y_pred_idx = clf.predict(X)
+    y_proba = clf.predict_proba(X) if hasattr(clf, "predict_proba") else None
+
+    predictions: list[dict[str, Any]] = []
+    correct = 0
+    for i, ex in enumerate(examples):
+        predicted_label = meta.classes[int(y_pred_idx[i])]
+        confidence = float(y_proba[i].max()) if y_proba is not None else None
+        is_correct = predicted_label == ex["label"]
+        if is_correct:
+            correct += 1
+        pred = {
+            "prompt": ex["prompt"],
+            "true_label": ex["label"],
+            "predicted_label": predicted_label,
+            "correct": is_correct,
+        }
+        if confidence is not None:
+            pred["confidence"] = round(confidence, 4)
+        predictions.append(pred)
+
+    accuracy = correct / len(examples)
+
+    per_class: dict[str, float] = {}
+    for cls in meta.classes:
+        cls_examples = [p for p in predictions if p["true_label"] == cls]
+        if cls_examples:
+            per_class[cls] = sum(1 for p in cls_examples if p["correct"]) / len(cls_examples)
+        else:
+            per_class[cls] = 0.0
+
+    n_classes = len(meta.classes)
+    confusion = [[0] * n_classes for _ in range(n_classes)]
+    for pred in predictions:
+        true_idx = class_to_idx.get(pred["true_label"])
+        pred_idx = class_to_idx.get(pred["predicted_label"])
+        if true_idx is not None and pred_idx is not None:
+            confusion[true_idx][pred_idx] += 1
+
+    result = EvaluateProbeResult(
+        probe_name=probe_name,
+        layer=meta.layer,
+        accuracy=accuracy,
+        per_class_accuracy=per_class,
+        confusion_matrix=confusion,
+        predictions=predictions,
+    )
+    return result.model_dump()
 
 
 @mcp.tool()
@@ -484,7 +493,7 @@ async def scan_probe_across_layers(
 
     # Validate layers
     num_layers = state.metadata.num_layers
-    out_of_range = [l for l in layers if l < 0 or l >= num_layers]
+    out_of_range = [lay for lay in layers if lay < 0 or lay >= num_layers]
     if out_of_range:
         return make_error(
             ToolError.LAYER_OUT_OF_RANGE,
@@ -518,96 +527,126 @@ async def scan_probe_across_layers(
         )
 
     try:
-        label_to_idx = {label: idx for idx, label in enumerate(classes)}
-        y = np.array([label_to_idx[label] for label in labels_raw])
-
-        # Cache activations: one forward pass per example captures all layers
-        # cache[layer_idx] = list of activation vectors
-        cache: dict[int, list[list[float]]] = {l: [] for l in layers}
-
-        logger.info(
-            "Scanning %d layers with %d examples (cached extraction)...",
-            len(layers), len(examples),
+        result = await asyncio.to_thread(
+            _scan_probe_impl,
+            state.model,
+            state.config,
+            state.tokenizer,
+            probe_name_prefix,
+            layers,
+            examples,
+            labels_raw,
+            classes,
+            ptype,
+            token_position,
         )
-        for i, ex in enumerate(examples):
-            activations = _extract_activations_all_layers(
-                state.model, state.config, state.tokenizer,
-                ex["prompt"], layers, token_position,
-            )
-            for l in layers:
-                cache[l].append(activations[l])
-
-        # Train probe at each layer
-        registry = ProbeRegistry.get()
-        layer_results: list[LayerAccuracy] = []
-        best_layer = layers[0]
-        best_val_acc = 0.0
-        timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
-
-        for l in layers:
-            X = np.array(cache[l], dtype=np.float32)
-            clf, train_acc, val_acc = _train_sklearn_probe(X, y, ptype)
-            coef_norm = _coefficients_norm(clf)
-
-            layer_results.append(LayerAccuracy(
-                layer=l,
-                train_accuracy=round(train_acc, 4),
-                val_accuracy=round(val_acc, 4),
-            ))
-
-            if val_acc > best_val_acc:
-                best_val_acc = val_acc
-                best_layer = l
-
-            # Store each probe
-            probe_name = f"{probe_name_prefix}_L{l}"
-            meta = ProbeMetadata(
-                name=probe_name,
-                layer=l,
-                probe_type=ptype,
-                classes=classes,
-                num_examples=len(examples),
-                train_accuracy=train_acc,
-                val_accuracy=val_acc,
-                coefficients_norm=coef_norm,
-                trained_at=timestamp,
-            )
-            registry.store(probe_name, clf, meta)
-
-        # Find crossover layer (first layer where val_accuracy > 0.8)
-        crossover = None
-        for lr in layer_results:
-            if lr.val_accuracy > 0.8:
-                crossover = lr.layer
-                break
-
-        # Build interpretation
-        if crossover is not None:
-            interpretation = (
-                f"Feature becomes linearly decodable at layer {crossover} "
-                f"(val_accuracy={next(lr.val_accuracy for lr in layer_results if lr.layer == crossover):.2%}). "
-                f"Peak accuracy at layer {best_layer} ({best_val_acc:.2%})."
-            )
-        else:
-            interpretation = (
-                f"Feature not strongly decodable (peak val_accuracy={best_val_acc:.2%} "
-                f"at layer {best_layer}). Consider adding more examples or trying different features."
-            )
-
-        result = ScanProbeResult(
-            probe_name_prefix=probe_name_prefix,
-            layers_scanned=layers,
-            accuracy_by_layer=layer_results,
-            peak_layer=best_layer,
-            peak_val_accuracy=round(best_val_acc, 4),
-            crossover_layer=crossover,
-            interpretation=interpretation,
-        )
-        return result.model_dump()
+        return result
 
     except Exception as e:
         logger.exception("scan_probe_across_layers failed")
         return make_error(ToolError.TRAINING_FAILED, str(e), "scan_probe_across_layers")
+
+
+def _scan_probe_impl(
+    model: Any,
+    config: Any,
+    tokenizer: Any,
+    probe_name_prefix: str,
+    layers: list[int],
+    examples: list[dict],
+    labels_raw: list[str],
+    classes: list[str],
+    ptype: ProbeType,
+    token_position: int,
+) -> dict:
+    """Sync implementation of scan_probe_across_layers."""
+    label_to_idx = {label: idx for idx, label in enumerate(classes)}
+    y = np.array([label_to_idx[label] for label in labels_raw])
+
+    cache: dict[int, list[list[float]]] = {lay: [] for lay in layers}
+
+    logger.info(
+        "Scanning %d layers with %d examples (cached extraction)...",
+        len(layers),
+        len(examples),
+    )
+    for i, ex in enumerate(examples):
+        activations = extract_activations_all_layers(
+            model,
+            config,
+            tokenizer,
+            ex["prompt"],
+            layers,
+            token_position,
+        )
+        for lay in layers:
+            cache[lay].append(activations[lay])
+
+    registry = ProbeRegistry.get()
+    layer_results: list[LayerAccuracy] = []
+    best_layer = layers[0]
+    best_val_acc = 0.0
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    for lay in layers:
+        X = np.array(cache[lay], dtype=np.float32)
+        clf, train_acc, val_acc = _train_sklearn_probe(X, y, ptype)
+        coef_norm = _coefficients_norm(clf)
+
+        layer_results.append(
+            LayerAccuracy(
+                layer=lay,
+                train_accuracy=round(train_acc, 4),
+                val_accuracy=round(val_acc, 4),
+            )
+        )
+
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_layer = lay
+
+        probe_name = f"{probe_name_prefix}_L{lay}"
+        meta = ProbeMetadata(
+            name=probe_name,
+            layer=lay,
+            probe_type=ptype,
+            classes=classes,
+            num_examples=len(examples),
+            train_accuracy=train_acc,
+            val_accuracy=val_acc,
+            coefficients_norm=coef_norm,
+            trained_at=timestamp,
+        )
+        registry.store(probe_name, clf, meta)
+
+    crossover = None
+    for lr in layer_results:
+        if lr.val_accuracy > 0.8:
+            crossover = lr.layer
+            break
+
+    if crossover is not None:
+        interpretation = (
+            f"Feature becomes linearly decodable at layer {crossover} "
+            f"(val_accuracy={next(lr.val_accuracy for lr in layer_results if lr.layer == crossover):.2%}). "
+            f"Peak accuracy at layer {best_layer} ({best_val_acc:.2%})."
+        )
+    else:
+        interpretation = (
+            f"Feature not strongly decodable (peak val_accuracy={best_val_acc:.2%} "
+            f"at layer {best_layer}). Consider adding more examples or trying different features."
+        )
+
+    result = ScanProbeResult(
+        probe_name_prefix=probe_name_prefix,
+        layers_scanned=layers,
+        accuracy_by_layer=layer_results,
+        peak_layer=best_layer,
+        peak_val_accuracy=round(best_val_acc, 4),
+        crossover_layer=crossover,
+        interpretation=interpretation,
+    )
+    return result.model_dump()
 
 
 @mcp.tool(read_only_hint=True, idempotent_hint=True)

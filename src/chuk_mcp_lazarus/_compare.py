@@ -7,14 +7,18 @@ returns structured results as plain Python dicts/lists.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import mlx.core as mx
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
 # Weight Divergence
 # ---------------------------------------------------------------------------
+
 
 def get_layer_weights(model: Any, layer_idx: int) -> dict[str, mx.array]:
     """Extract weight tensors for a specific layer."""
@@ -79,12 +83,14 @@ def weight_divergence(
             norm_b = float(mx.sqrt(mx.sum(flat_b * flat_b)))
             cos_sim = dot / (norm_a * norm_b + 1e-8)
 
-            results.append({
-                "layer": layer_idx,
-                "component": component,
-                "frobenius_norm_diff": round(normalized_diff, 6),
-                "cosine_similarity": round(min(max(cos_sim, -1.0), 1.0), 6),
-            })
+            results.append(
+                {
+                    "layer": layer_idx,
+                    "component": component,
+                    "frobenius_norm_diff": round(normalized_diff, 6),
+                    "cosine_similarity": round(min(max(cos_sim, -1.0), 1.0), 6),
+                }
+            )
 
     return results
 
@@ -92,6 +98,7 @@ def weight_divergence(
 # ---------------------------------------------------------------------------
 # Activation Divergence
 # ---------------------------------------------------------------------------
+
 
 def _get_hidden_states(
     model: Any,
@@ -172,13 +179,15 @@ def activation_divergence(
             avg_norm = (norm_a + norm_b) / 2
             rel_l2 = l2_dist / (avg_norm + 1e-8)
 
-            results.append({
-                "layer": layer_idx,
-                "prompt": prompt,
-                "cosine_similarity": round(min(max(cos_sim, -1.0), 1.0), 6),
-                "l2_distance": round(l2_dist, 4),
-                "relative_l2": round(rel_l2, 6),
-            })
+            results.append(
+                {
+                    "layer": layer_idx,
+                    "prompt": prompt,
+                    "cosine_similarity": round(min(max(cos_sim, -1.0), 1.0), 6),
+                    "l2_distance": round(l2_dist, 4),
+                    "relative_l2": round(rel_l2, 6),
+                }
+            )
 
     return results
 
@@ -186,6 +195,7 @@ def activation_divergence(
 # ---------------------------------------------------------------------------
 # Attention Divergence
 # ---------------------------------------------------------------------------
+
 
 def _js_divergence(p: mx.array, q: mx.array, eps: float = 1e-10) -> float:
     """Compute Jensen-Shannon divergence between two distributions."""
@@ -214,7 +224,9 @@ def _compute_attention_weights(
     target layer), then project through Q/K to compute attention weights.
     """
     from chuk_lazarus.introspection.hooks import (
-        CaptureConfig, ModelHooks, PositionSelection,
+        CaptureConfig,
+        ModelHooks,
+        PositionSelection,
     )
 
     input_ids = mx.array(tokenizer.encode(prompt, add_special_tokens=True))
@@ -223,12 +235,12 @@ def _compute_attention_weights(
     # Hidden state at layer N is the OUTPUT of layer N.
     # The INPUT to layer N is the output of layer N-1 (or embeddings for layer 0).
     # Capture both the predecessor layers and layer 0's pre-layer state.
-    capture_layers = set()
-    for l in layers:
-        if l > 0:
-            capture_layers.add(l - 1)
-        capture_layers.add(l)
-    capture_layers = sorted(capture_layers)
+    capture_set: set[int] = set()
+    for lay in layers:
+        if lay > 0:
+            capture_set.add(lay - 1)
+        capture_set.add(lay)
+    capture_layers = sorted(capture_set)
 
     hooks = ModelHooks(model, model_config=config)
     hooks.configure(
@@ -248,7 +260,7 @@ def _compute_attention_weights(
     num_heads = getattr(config, "num_attention_heads", 8)
     num_kv_heads = getattr(config, "num_key_value_heads", num_heads)
     head_dim = getattr(config, "head_dim", getattr(config, "hidden_size", 2560) // num_heads)
-    scale = head_dim ** -0.5
+    scale = head_dim**-0.5
 
     for layer_idx in layers:
         # Get the INPUT to this layer = output of previous layer
@@ -323,8 +335,8 @@ def _compute_attention_weights(
 
             attn_weights[layer_idx] = weights  # [batch, heads, seq, seq]
 
-        except Exception:
-            # Skip layers where manual computation fails
+        except Exception as e:
+            logger.warning("Attention weight computation failed for layer %d: %s", layer_idx, e)
             continue
 
     return attn_weights
@@ -376,11 +388,13 @@ def attention_divergence(
             norm_b = float(mx.sqrt(mx.sum(head_b * head_b)))
             cos_sim = dot / (norm_a * norm_b + 1e-8)
 
-            results.append({
-                "layer": layer_idx,
-                "head": head_idx,
-                "js_divergence": round(js_div, 6),
-                "cosine_similarity": round(min(max(cos_sim, -1.0), 1.0), 6),
-            })
+            results.append(
+                {
+                    "layer": layer_idx,
+                    "head": head_idx,
+                    "js_divergence": round(js_div, 6),
+                    "cosine_similarity": round(min(max(cos_sim, -1.0), 1.0), 6),
+                }
+            )
 
     return results

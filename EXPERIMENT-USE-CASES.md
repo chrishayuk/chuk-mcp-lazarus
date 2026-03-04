@@ -1,7 +1,7 @@
 # Experiment Use Cases
 
 Experiments and discoveries an AI agent can make autonomously using
-chuk-mcp-lazarus's 26 tools. Each experiment is a multi-step workflow
+chuk-mcp-lazarus's 34 tools. Each experiment is a multi-step workflow
 where the agent forms hypotheses, designs tests, and iterates based
 on results.
 
@@ -14,16 +14,20 @@ on results.
 **Question:** At which layer does the model "know" that Paris is the
 capital of France?
 
-**Tools:** `logit_lens` → `track_token` → `scan_probe_across_layers` → `ablate_layers`
+**Tools:** `logit_lens` → `track_token` → `logit_attribution` → `head_attribution` → `top_neurons` → `ablate_layers`
 
 **Workflow:**
 1. `logit_lens("The capital of France is")` — see when "Paris" first
    appears in the top-k predictions at each layer
 2. `track_token("The capital of France is", token="Paris")` — watch
    "Paris" probability and rank climb from layer 0 to the final layer
-3. `scan_probe_across_layers` with factual/non-factual labels — find
-   where factual knowledge becomes linearly decodable
-4. `ablate_layers` at the critical layer — if ablation destroys the
+3. `logit_attribution` — find which layers' attention and MLP components
+   contribute most to the "Paris" logit
+4. `head_attribution` at the peak attention layer — which specific heads
+   push toward "Paris"?
+5. `top_neurons` at the peak MLP layer — which individual neurons
+   store the France→Paris knowledge?
+6. `ablate_layers` at the critical layer — if ablation destroys the
    answer, that layer is causal, not just correlated
 
 **Possible discoveries:**
@@ -361,6 +365,9 @@ Which tools pair well together:
 |------------|----------|-----------|
 | `logit_lens` | `track_token` | When does the model "decide" on a specific answer? |
 | `logit_lens` | `ablate_layers` | Is the decision layer causal or correlational? |
+| `logit_attribution` | `head_attribution` | Which specific attention heads drive the prediction? |
+| `logit_attribution` | `top_neurons` | Which MLP neurons store the knowledge? |
+| `head_attribution` | `attention_pattern` | What is the top head actually attending to? |
 | `scan_probe_across_layers` | `ablate_layers` | Is the probed feature used or just present? |
 | `attention_heads` | `attention_pattern` | What are the focused heads actually attending to? |
 | `attention_pattern` | `patch_activations` | Is the attention pattern functionally important? |
@@ -369,3 +376,5 @@ Which tools pair well together:
 | `compare_weights` | `compare_attention` | Did weight changes rewire attention? |
 | `extract_activations` | `compare_activations` | How do representations differ across conditions? |
 | `tokenize` | `attention_pattern` | Which tokens attend across word boundaries? |
+| `trace_token` | `residual_decomposition` | Is the causal layer driven by attention or MLP? |
+| `embedding_neighbors` | `top_neurons` | Do neurons push toward semantically related tokens? |

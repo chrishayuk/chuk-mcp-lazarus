@@ -10,8 +10,8 @@ from __future__ import annotations
 from typing import Any
 
 
-def mx_to_list(arr: Any) -> list[float]:
-    """Convert an MLX array to a plain Python list of floats."""
+def mx_to_list(arr: Any) -> Any:
+    """Convert an MLX array to a plain Python list (nested shape preserved)."""
     import mlx.core as mx
 
     if isinstance(arr, mx.array):
@@ -54,7 +54,7 @@ def serialize_config(config: Any) -> dict[str, Any]:
     return result
 
 
-def hidden_state_to_list(arr: Any, position: int = -1) -> list[float]:
+def hidden_state_to_list(arr: Any, position: int = -1) -> Any:
     """Extract a single position's activation from a hidden state tensor.
 
     Handles shapes: [hidden], [seq, hidden], [batch, seq, hidden].

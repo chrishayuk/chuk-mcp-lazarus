@@ -114,6 +114,44 @@ and watch predictions evolve layer-by-layer via logit lens.
 **Status:** 26 tools + 4 resources. 32/32 smoke tests passing. Phase 1b Steps 8-9
 complete. Attention tools reuse `_compute_attention_weights` from `_compare.py`.
 
+#### Step 6e: Causal Tracing ✅
+- `tools/causal_tools.py` -- `trace_token`, `full_causal_trace`
+- `trace_token` ablates each layer and measures effect on target token probability
+- `full_causal_trace` produces position × layer causal heatmap (Meng et al. style)
+- Demo: `examples/causal_tracing_demo.py`
+- Language transition demo expanded to 15 steps (was 14): added causal tracing
+
+**Status:** 28 tools + 4 resources. 36/36 smoke tests passing.
+
+#### Step 6f: Residual Stream Analysis ✅
+- `tools/residual_tools.py` -- `residual_decomposition`, `layer_clustering`
+- `residual_decomposition` manually unrolls forward pass to separate attention vs MLP
+- `layer_clustering` computes cosine similarity and cluster separation across layers
+- Demo: `examples/residual_stream_demo.py`
+
+**Status:** 30 tools + 4 resources. 40/40 smoke tests passing.
+
+#### Step 6g: Logit Attribution ✅
+- `tools/residual_tools.py` -- `logit_attribution` (direct logit attribution)
+- Per-layer attention + MLP contribution to predicted token's logit
+- Demo: `examples/logit_attribution_demo.py`
+
+**Status:** 31 tools + 4 resources. 42/42 smoke tests passing.
+
+#### Step 6h: Deep Interpretability Tools ✅
+- `tools/residual_tools.py` -- `head_attribution`, `top_neurons`
+- `tools/generation_tools.py` -- `embedding_neighbors`
+- `head_attribution` decomposes attention output through `o_proj` per head
+- `top_neurons` computes per-neuron MLP contributions via SwiGLU decomposition
+- `embedding_neighbors` finds nearest tokens by cosine similarity in embedding space
+- Shared helpers: `_get_unembed_vector()`, `_resolve_target_token()` in residual_tools.py
+- Shared extraction: `_extraction.py` consolidates duplicate activation extraction
+- Demo: `examples/deep_dive_demo.py`
+
+**Status:** 34 tools + 4 resources. 53/53 smoke tests passing. All CPU-bound work
+wrapped in `asyncio.to_thread`. Input validation (top_k, max_new_tokens, empty layers)
+across all tools. Shared comparison guard `_require_comparison_models()`.
+
 ---
 
 ## Phase 1b -- chuk-mcp-lazarus (Extended)
@@ -140,7 +178,7 @@ specific features.
 **Unlocks:** Automated Circuit Discovery, Computational Stratigraphy,
 Fine-Tuning Delta, Metacognition Probing, Universal Circuits.
 
-### Step 8: Logit Lens ✅
+### Step 8: Logit Lens ✅ (v0.4.0--v0.5.0)
 
 Watch the model think -- track how predictions evolve layer by layer.
 
@@ -150,7 +188,6 @@ Watch the model think -- track how predictions evolve layer by layer.
 | `track_token` | Track a specific token's probability and rank across layers | `ModelHooks.get_layer_logits()` |
 
 > **Note:** `logit_lens` implemented in v0.4.0. `track_token` added in v0.5.0.
-> `layer_predictions` (full vocab at each layer) deferred — `logit_lens` already returns top-k per layer.
 
 ### Step 9: Attention Analysis ✅
 
@@ -161,7 +198,7 @@ See what attends to what -- understand information routing.
 | `attention_pattern` | Extract full attention matrix at a layer (which tokens attend to which) | Manual Q*K + RoPE via `_compare._compute_attention_weights()` |
 | `attention_heads` | Per-head entropy and focus analysis -- find which heads are doing the work | Entropy from attention weights |
 
-### Step 10: Causal Tracing ✅
+### Step 10: Causal Tracing ✅ (v0.6.0)
 
 Trace causal circuits -- identify which components are responsible
 for specific predictions. Probes show correlation; causal tracing
@@ -203,19 +240,21 @@ Metacognition Probing, Universal Circuits, Safety Patching.
 PROBE_WEIGHTS, CONTRASTIVE, PCA. Returns `ExtractedDirection` with
 separation score (Cohen's d), classification accuracy, mean projections.
 
-### Step 12: Residual Stream Dynamics ✅
+### Step 12: Residual Stream Dynamics ✅ (v0.7.0--v0.9.0)
 
 Understand how information flows through the residual stream.
 
-> **Implemented in v0.7.0.** `residual_decomposition` manually unrolls the
-> forward pass through `TransformerBlock` sub-components to capture attention
-> and FFN outputs separately. `layer_clustering` uses `ModelHooks` for hidden
-> state capture with cosine similarity matrices.
+> **v0.7.0:** `residual_decomposition` and `layer_clustering`.
+> **v0.8.0:** `logit_attribution` (direct logit attribution per layer).
+> **v0.9.0:** `head_attribution` (per-head), `top_neurons` (per-neuron).
 
 | Tool | Purpose | Backed by |
 |------|---------|-----------|
 | `residual_decomposition` | Separate attention vs MLP contribution to the residual stream per layer | Manual sub-component forward pass via `ModelHooks` |
 | `layer_clustering` | Cluster prompts by representation similarity at each layer, measure separability | `ModelHooks` + `cosine_similarity_matrix` |
+| `logit_attribution` | Direct logit attribution: per-layer attention + MLP contribution to predicted token | Manual decomposition forward pass |
+| `head_attribution` | Per-head logit attribution at a specific layer | `o_proj` decomposition per head |
+| `top_neurons` | Per-neuron MLP identification: which neurons push toward target token | SwiGLU decomposition via `down_proj` |
 
 **Unlocks:** Automated Circuit Discovery, Computational Stratigraphy,
 Universal Circuits.
@@ -520,23 +559,25 @@ If chuk-lazarus training capabilities are exposed:
 
 ## Version Milestones
 
-| Version | Scope |
-|---------|-------|
-| 0.1.0 | Phase 1 Steps 1--5 (demo-ready: load, extract, probe, steer, ablate) |
-| 0.2.0 | Phase 1 Step 6 (resources, polish, end-to-end demo) |
-| 0.3.0 | Phase 1 Step 6b (model comparison tools, two-model analysis) |
-| 0.4.0 | Phase 1 Step 6c (generation, prediction, tokenize, logit lens, compare_generations) |
-| 0.5.0 | Phase 1b Steps 8--9 (track_token, attention_pattern, attention_heads) |
-| 0.6.0 | Phase 1b Step 10 (causal tracing: trace_token, full_causal_trace) |
-| 0.7.0 | Phase 1b Step 12 (residual stream: residual_decomposition, layer_clustering) |
-| 0.8.0 | Phase 1b Step 11 (direction extraction: extract_direction) |
-| 0.9.0 | Phase 1b Step 7 (neurons: discover_neurons, analyze_neuron) |
-| 0.10.0 | Phase 1b Steps 13--14 (confidence, metacognition, external memory) |
-| 0.10.0 | Phase 2 (tokenizer server) |
-| 0.11.0 | Phase 3 (introspect server) |
-| 0.12.0 | Phase 4 core (MoE: routing, ablation, identification) |
-| 0.12.x | Phase 4 extended (MoE: circuits, compression, dynamics) |
-| 1.0.0 | State persistence, multi-model sessions, production hardening |
+| Version | Scope | Status |
+|---------|-------|--------|
+| 0.1.0 | Phase 1 Steps 1--5 (load, extract, probe, steer, ablate) | ✅ |
+| 0.2.0 | Phase 1 Step 6 (resources, polish, end-to-end demo) | ✅ |
+| 0.3.0 | Phase 1 Step 6b (model comparison tools, two-model analysis) | ✅ |
+| 0.4.0 | Phase 1 Step 6c (generation, prediction, tokenize, logit lens) | ✅ |
+| 0.5.0 | Phase 1 Step 6d (track_token, attention_pattern, attention_heads) | ✅ |
+| 0.6.0 | Phase 1 Step 6e (causal tracing: trace_token, full_causal_trace) | ✅ |
+| 0.7.0 | Phase 1 Step 6f (residual stream: residual_decomposition, layer_clustering) | ✅ |
+| 0.8.0 | Phase 1 Step 6g (logit_attribution: direct logit attribution) | ✅ |
+| 0.9.0 | Phase 1 Step 6h (head_attribution, top_neurons, embedding_neighbors) | ✅ |
+| 0.10.0 | Phase 1b Step 11 (direction extraction: extract_direction) | |
+| 0.11.0 | Phase 1b Step 7 (neurons: discover_neurons, analyze_neuron) | |
+| 0.12.0 | Phase 1b Steps 13--14 (confidence, metacognition, external memory) | |
+| 0.13.0 | Phase 2 (tokenizer server) | |
+| 0.14.0 | Phase 3 (introspect server) | |
+| 0.15.0 | Phase 4 core (MoE: routing, ablation, identification) | |
+| 0.15.x | Phase 4 extended (MoE: circuits, compression, dynamics) | |
+| 1.0.0 | State persistence, multi-model sessions, production hardening | |
 
 ---
 
@@ -544,8 +585,8 @@ If chuk-lazarus training capabilities are exposed:
 
 | Phase | Server | Tools |
 |-------|--------|-------|
-| 1 | lazarus (core) | 30 |
-| 1b | lazarus (extended) | ~13 |
+| 1 | lazarus (core) | 34 |
+| 1b | lazarus (extended) | ~9 |
 | 2 | tokenizer | 11 |
 | 3 | introspect | 7 |
 | 4 | moe | 20 |

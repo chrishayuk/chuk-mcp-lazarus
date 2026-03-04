@@ -42,6 +42,7 @@ import time
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def pp(label: str, result: dict) -> None:
     """Pretty-print a tool result."""
     print(f"\n{'─' * 60}")
@@ -121,24 +122,24 @@ async def run_experiment(
     # Step A: Discover what the model actually predicts
     # ------------------------------------------------------------------
     result = await predict_next_token(prompt=prompt, top_k=5)
-    pp(f"predict_next_token", result)
+    pp("predict_next_token", result)
 
     if result.get("error"):
         print(f"  FAILED: {result.get('message')}")
         return
 
     top = result["predictions"][0]
-    target = top["token"]      # e.g. " Paris" (with space prefix)
+    target = top["token"]  # e.g. " Paris" (with space prefix)
     target_prob = top["probability"]
 
     print(f"\n  Model's top prediction: {target!r} (p={target_prob:.4f})")
-    print(f"  Top 5:")
+    print("  Top 5:")
     for p in result["predictions"]:
         print(f"    {p['token']!r:>15}  p={p['probability']:.4f}")
 
     if target_prob < 0.01:
         print(f"\n  WARNING: top prediction probability is very low ({target_prob:.4f}).")
-        print(f"  Causal effects may be near zero.  Try a larger model.")
+        print("  Causal effects may be near zero.  Try a larger model.")
 
     # ------------------------------------------------------------------
     # Step B: track_token (observational)
@@ -151,23 +152,29 @@ async def run_experiment(
         print(f"\n  Target: {result['target_token']!r} (id={result['target_token_id']})")
         print(f"  Emergence layer: {result['emergence_layer']}")
         print(f"  Peak layer: {result['peak_layer']} (p={result['peak_probability']:.4f})")
-        print(f"\n  Probability curve (observational -- logit lens):")
+        print("\n  Probability curve (observational -- logit lens):")
         for entry in result["layers"]:
             marker = " << top-1" if entry["is_top1"] else ""
             prob_bar = bar_chart(entry["probability"])
-            print(f"    Layer {entry['layer']:>3}: p={entry['probability']:.6f} "
-                  f"rank={entry['rank']:>5} {prob_bar}{marker}")
+            print(
+                f"    Layer {entry['layer']:>3}: p={entry['probability']:.6f} "
+                f"rank={entry['rank']:>5} {prob_bar}{marker}"
+            )
             track_data[entry["layer"]] = entry["probability"]
 
     # ------------------------------------------------------------------
     # Step C: trace_token (interventional) -- with progress
     # ------------------------------------------------------------------
-    print(f"\n  Running trace_token: {len(causal_layers)} ablation passes "
-          f"(layers {causal_layers[0]}..{causal_layers[-1]})...")
+    print(
+        f"\n  Running trace_token: {len(causal_layers)} ablation passes "
+        f"(layers {causal_layers[0]}..{causal_layers[-1]})..."
+    )
     t_trace = time.time()
     trace_result = await asyncio.to_thread(
         ci.trace_token,
-        prompt, target, causal_layers,
+        prompt,
+        target,
+        causal_layers,
         0.01,  # effect_threshold
         trace_progress,
     )
@@ -181,8 +188,7 @@ async def run_experiment(
         "target_token_id": trace_result.target_token_id,
         "baseline_prob": trace_result.baseline_prob,
         "layer_effects": [
-            {"layer": layer, "effect": effect}
-            for layer, effect in trace_result.layer_effects
+            {"layer": layer, "effect": effect} for layer, effect in trace_result.layer_effects
         ],
         "critical_layers": list(trace_result.critical_layers),
         "peak_layer": trace_result.peak_layer,
@@ -195,13 +201,12 @@ async def run_experiment(
     print(f"\n  Baseline prob: {result['baseline_prob']:.6f}")
     print(f"  Peak layer: {result['peak_layer']} (effect={result['peak_effect']:.6f})")
     print(f"  Critical layers: {result['critical_layers']}")
-    print(f"\n  Causal effect curve (interventional -- ablation):")
+    print("\n  Causal effect curve (interventional -- ablation):")
     for entry in result["layer_effects"]:
         is_critical = entry["layer"] in result["critical_layers"]
         marker = " << critical" if is_critical else ""
         effect_bar = bar_chart(entry["effect"])
-        print(f"    Layer {entry['layer']:>3}: effect={entry['effect']:+.6f} "
-              f"{effect_bar}{marker}")
+        print(f"    Layer {entry['layer']:>3}: effect={entry['effect']:+.6f} {effect_bar}{marker}")
         trace_data[entry["layer"]] = entry["effect"]
 
     # ------------------------------------------------------------------
@@ -209,7 +214,7 @@ async def run_experiment(
     # ------------------------------------------------------------------
     if track_data and trace_data:
         print(f"\n{'─' * 60}")
-        print(f"  Observation vs Intervention comparison")
+        print("  Observation vs Intervention comparison")
         print(f"{'─' * 60}")
 
         # Find maxima for scaling bars
@@ -217,20 +222,21 @@ async def run_experiment(
         max_effect = max(abs(v) for v in trace_data.values()) or 1.0
 
         # Show only the layers we tested causally
-        print(f"\n  {'Layer':>5}  {'Prob (obs)':>14}  {'Effect (int)':>14}  "
-              f"{'Observation':>12}  {'Intervention':>12}")
+        print(
+            f"\n  {'Layer':>5}  {'Prob (obs)':>14}  {'Effect (int)':>14}  "
+            f"{'Observation':>12}  {'Intervention':>12}"
+        )
         print(f"  {'─' * 5}  {'─' * 14}  {'─' * 14}  {'─' * 12}  {'─' * 12}")
         for layer in causal_layers:
             prob = track_data.get(layer, 0.0)
             effect = trace_data.get(layer, 0.0)
             obs_bar = bar_chart(prob / max_prob, width=12)
             int_bar = bar_chart(effect / max_effect if max_effect else 0, width=12)
-            print(f"  {layer:>5}  {prob:>14.6f}  {effect:>+14.6f}  "
-                  f"{obs_bar:<12}  {int_bar:<12}")
+            print(f"  {layer:>5}  {prob:>14.6f}  {effect:>+14.6f}  {obs_bar:<12}  {int_bar:<12}")
 
-        print(f"\n  Key insight: layers where the prediction first *appears*")
-        print(f"  (observation) may differ from layers that *cause* it")
-        print(f"  (intervention).")
+        print("\n  Key insight: layers where the prediction first *appears*")
+        print("  (observation) may differ from layers that *cause* it")
+        print("  (intervention).")
 
     # ------------------------------------------------------------------
     # Step E: full_causal_trace (position x layer heatmap) -- with progress
@@ -238,12 +244,12 @@ async def run_experiment(
     if not show_full_trace:
         return
 
-    print(f"\n  Running full_causal_trace: {len(heatmap_layers)} layers x "
-          f"N positions...")
+    print(f"\n  Running full_causal_trace: {len(heatmap_layers)} layers x N positions...")
     t_full = time.time()
     full_result = await asyncio.to_thread(
         ci.full_causal_trace,
-        prompt, target,
+        prompt,
+        target,
         None,  # corrupt_prompt
         heatmap_layers,
         heatmap_progress,
@@ -274,21 +280,24 @@ async def run_experiment(
     print(f"  Critical layers: {result['critical_layers']}")
 
     # Find max effect for normalization
-    grid_max = max(
-        (abs(effects[p][l]) for p in range(n_pos) for l in range(n_lay)),
-        default=1.0,
-    ) or 1.0
+    grid_max = (
+        max(
+            (abs(effects[p][lay]) for p in range(n_pos) for lay in range(n_lay)),
+            default=1.0,
+        )
+        or 1.0
+    )
 
     # ASCII heatmap
-    print(f"\n  Position x Layer heatmap (recovery rate):")
-    print(f"  Shade: ' '=0  ░=low  ▒=mid  ▓=high  █=max")
+    print("\n  Position x Layer heatmap (recovery rate):")
+    print("  Shade: ' '=0  ░=low  ▒=mid  ▓=high  █=max")
     print()
 
     # Header: layer numbers
     header = "  " + " " * 14
-    for l in range(n_lay):
-        if l % 5 == 0:
-            header += f"{l:<3}"
+    for lay in range(n_lay):
+        if lay % 5 == 0:
+            header += f"{lay:<3}"
         else:
             header += "   "
     print(header)
@@ -297,8 +306,8 @@ async def run_experiment(
     for p in range(n_pos):
         tok_label = f"{tokens[p][:12]:<12}" if p < len(tokens) else f"pos {p:<8}"
         row = f"  {tok_label}  "
-        for l in range(n_lay):
-            normalized = abs(effects[p][l]) / grid_max
+        for lay in range(n_lay):
+            normalized = abs(effects[p][lay]) / grid_max
             row += f" {heatmap_char(normalized)} "
         print(row)
 
@@ -308,6 +317,7 @@ async def run_experiment(
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 async def main(model_id: str) -> int:
     from chuk_mcp_lazarus.tools.model_tools import load_model
@@ -324,7 +334,7 @@ async def main(model_id: str) -> int:
     # Step 1: Load model
     # ==================================================================
     print(f"\n{'=' * 60}")
-    print(f"  CAUSAL TRACING DEMO")
+    print("  CAUSAL TRACING DEMO")
     print(f"  Model: {model_id}")
     print(f"{'=' * 60}")
 
@@ -334,8 +344,7 @@ async def main(model_id: str) -> int:
         return 1
 
     num_layers = result["num_layers"]
-    print(f"  Loaded: {result['family']} ({num_layers} layers, "
-          f"{result['hidden_dim']} hidden dim)")
+    print(f"  Loaded: {result['family']} ({num_layers} layers, {result['hidden_dim']} hidden dim)")
 
     all_layers = list(range(num_layers))
 
@@ -374,17 +383,17 @@ async def main(model_id: str) -> int:
     # ==================================================================
     elapsed = time.time() - t0
     print(f"\n{'=' * 60}")
-    print(f"  CAUSAL TRACING DEMO COMPLETE")
+    print("  CAUSAL TRACING DEMO COMPLETE")
     print(f"  Model: {model_id} ({num_layers} layers)")
     print(f"  Completed in {elapsed:.1f}s")
     print(f"{'=' * 60}")
 
-    print(f"\n  Takeaways:")
-    print(f"  - track_token shows WHERE a prediction appears (observational)")
-    print(f"  - trace_token shows WHICH layers are necessary (interventional)")
-    print(f"  - full_causal_trace reveals which TOKEN POSITIONS carry")
-    print(f"    the critical information at each layer")
-    print(f"  - Different facts may use different circuits")
+    print("\n  Takeaways:")
+    print("  - track_token shows WHERE a prediction appears (observational)")
+    print("  - trace_token shows WHICH layers are necessary (interventional)")
+    print("  - full_causal_trace reveals which TOKEN POSITIONS carry")
+    print("    the critical information at each layer")
+    print("  - Different facts may use different circuits")
     print()
 
     return 0

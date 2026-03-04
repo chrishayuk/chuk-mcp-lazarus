@@ -9,7 +9,9 @@ mechanistic interpretability.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -25,6 +27,7 @@ logger = logging.getLogger(__name__)
 # Result models
 # ---------------------------------------------------------------------------
 
+
 class AblateLayersResult(BaseModel):
     """Result from ablate_layers."""
 
@@ -35,7 +38,7 @@ class AblateLayersResult(BaseModel):
     ablated_output: str
     baseline_output: str
     output_similarity: float = Field(
-        ..., description="Cosine similarity between ablated and baseline token distributions."
+        ..., description="Word-level Jaccard similarity between ablated and baseline outputs."
     )
     disruption_score: float = Field(
         ..., description="1 - output_similarity. Higher = more disruption."
@@ -63,6 +66,7 @@ class PatchActivationsResult(BaseModel):
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _word_overlap_similarity(text_a: str, text_b: str) -> float:
     """Compute word-level Jaccard similarity between two texts."""
     words_a = set(text_a.lower().split())
@@ -79,6 +83,7 @@ def _word_overlap_similarity(text_a: str, text_b: str) -> float:
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool()
 async def ablate_layers(
@@ -109,8 +114,22 @@ async def ablate_layers(
             "ablate_layers",
         )
 
+    if not layers:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            "layers must not be empty.",
+            "ablate_layers",
+        )
+
+    if max_new_tokens < 1 or max_new_tokens > 1000:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            f"max_new_tokens must be 1-1000, got {max_new_tokens}.",
+            "ablate_layers",
+        )
+
     num_layers = state.metadata.num_layers
-    out_of_range = [l for l in layers if l < 0 or l >= num_layers]
+    out_of_range = [lay for lay in layers if lay < 0 or lay >= num_layers]
     if out_of_range:
         return make_error(
             ToolError.LAYER_OUT_OF_RANGE,
@@ -134,58 +153,81 @@ async def ablate_layers(
         )
 
     try:
-        from chuk_lazarus.introspection.ablation.adapter import ModelAdapter
-        from chuk_lazarus.introspection.ablation.study import AblationStudy
-        from chuk_lazarus.introspection.ablation.config import (
-            AblationConfig,
-            ComponentType,
+        result = await asyncio.to_thread(
+            _ablate_layers_impl,
+            state.model,
+            state.tokenizer,
+            state.config,
+            prompt,
+            layers,
+            max_new_tokens,
+            ablation_type,
+            component,
         )
-
-        # Map component string to enum
-        component_map = {
-            "mlp": ComponentType.MLP,
-            "attention": ComponentType.ATTENTION,
-            "both": ComponentType.BOTH,
-        }
-        comp = component_map[component]
-
-        # Build adapter from our already-loaded model
-        adapter = ModelAdapter(state.model, state.tokenizer, state.config)
-        study = AblationStudy(adapter)
-        config = AblationConfig(max_new_tokens=max_new_tokens, component=comp)
-
-        # Baseline generation
-        baseline_output, _ = generate_text(
-            state.model, state.tokenizer, prompt,
-            max_new_tokens=max_new_tokens,
-        )
-
-        # Ablated generation
-        ablated_output = study.ablate_and_generate(
-            prompt=prompt,
-            layers=layers,
-            component=comp,
-            config=config,
-        )
-
-        similarity = _word_overlap_similarity(baseline_output, ablated_output)
-        disruption = 1.0 - similarity
-
-        result = AblateLayersResult(
-            prompt=prompt,
-            ablated_layers=layers,
-            ablation_type=ablation_type,
-            component=component,
-            ablated_output=ablated_output,
-            baseline_output=baseline_output,
-            output_similarity=round(similarity, 4),
-            disruption_score=round(disruption, 4),
-        )
-        return result.model_dump()
+        return result
 
     except Exception as e:
         logger.exception("ablate_layers failed")
         return make_error(ToolError.ABLATION_FAILED, str(e), "ablate_layers")
+
+
+def _ablate_layers_impl(
+    model: Any,
+    tokenizer: Any,
+    config: Any,
+    prompt: str,
+    layers: list[int],
+    max_new_tokens: int,
+    ablation_type: str,
+    component: str,
+) -> dict:
+    """Sync implementation of ablate_layers."""
+    from chuk_lazarus.introspection.ablation.adapter import ModelAdapter
+    from chuk_lazarus.introspection.ablation.study import AblationStudy
+    from chuk_lazarus.introspection.ablation.config import (
+        AblationConfig,
+        ComponentType,
+    )
+
+    component_map = {
+        "mlp": ComponentType.MLP,
+        "attention": ComponentType.ATTENTION,
+        "both": ComponentType.BOTH,
+    }
+    comp = component_map[component]
+
+    adapter = ModelAdapter(model, tokenizer, config)
+    study = AblationStudy(adapter)
+    abl_config = AblationConfig(max_new_tokens=max_new_tokens, component=comp)
+
+    baseline_output, _ = generate_text(
+        model,
+        tokenizer,
+        prompt,
+        max_new_tokens=max_new_tokens,
+    )
+
+    ablated_output = study.ablate_and_generate(
+        prompt=prompt,
+        layers=layers,
+        component=comp,
+        config=abl_config,
+    )
+
+    similarity = _word_overlap_similarity(baseline_output, ablated_output)
+    disruption = 1.0 - similarity
+
+    result = AblateLayersResult(
+        prompt=prompt,
+        ablated_layers=layers,
+        ablation_type=ablation_type,
+        component=component,
+        ablated_output=ablated_output,
+        baseline_output=baseline_output,
+        output_similarity=round(similarity, 4),
+        disruption_score=round(disruption, 4),
+    )
+    return result.model_dump()
 
 
 @mcp.tool()
@@ -217,6 +259,13 @@ async def patch_activations(
             "patch_activations",
         )
 
+    if max_new_tokens < 1 or max_new_tokens > 1000:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            f"max_new_tokens must be 1-1000, got {max_new_tokens}.",
+            "patch_activations",
+        )
+
     num_layers = state.metadata.num_layers
     if layer < 0 or layer >= num_layers:
         return make_error(
@@ -226,35 +275,50 @@ async def patch_activations(
         )
 
     try:
-        from chuk_lazarus.introspection.interventions import (
-            CounterfactualIntervention,
+        result = await asyncio.to_thread(
+            _patch_activations_impl,
+            state.model,
+            state.tokenizer,
+            source_prompt,
+            target_prompt,
+            layer,
         )
-
-        ci = CounterfactualIntervention(
-            model=state.model,
-            tokenizer=state.tokenizer,
-        )
-
-        # Use patch_run for the interchange experiment
-        patch_result = ci.patch_run(
-            clean_prompt=source_prompt,
-            corrupt_prompt=target_prompt,
-            patch_layers=[layer],
-            patch_positions=[-1],
-        )
-
-        result = PatchActivationsResult(
-            source_prompt=source_prompt,
-            target_prompt=target_prompt,
-            patched_layer=layer,
-            patched_output=patch_result.patched_output,
-            baseline_output=patch_result.corrupt_output,
-            source_output=patch_result.clean_output,
-            recovery_rate=round(float(patch_result.recovery_rate), 4),
-            effect_size=round(float(patch_result.effect_size), 4),
-        )
-        return result.model_dump()
+        return result
 
     except Exception as e:
         logger.exception("patch_activations failed")
         return make_error(ToolError.ABLATION_FAILED, str(e), "patch_activations")
+
+
+def _patch_activations_impl(
+    model: Any,
+    tokenizer: Any,
+    source_prompt: str,
+    target_prompt: str,
+    layer: int,
+) -> dict:
+    """Sync implementation of patch_activations."""
+    from chuk_lazarus.introspection.interventions import (
+        CounterfactualIntervention,
+    )
+
+    ci = CounterfactualIntervention(model=model, tokenizer=tokenizer)
+
+    patch_result = ci.patch_run(
+        clean_prompt=source_prompt,
+        corrupt_prompt=target_prompt,
+        patch_layers=[layer],
+        patch_positions=[-1],
+    )
+
+    result = PatchActivationsResult(
+        source_prompt=source_prompt,
+        target_prompt=target_prompt,
+        patched_layer=layer,
+        patched_output=patch_result.patched_output,
+        baseline_output=patch_result.corrupt_output,
+        source_output=patch_result.clean_output,
+        recovery_rate=round(float(patch_result.recovery_rate), 4),
+        effect_size=round(float(patch_result.effect_size), 4),
+    )
+    return result.model_dump()

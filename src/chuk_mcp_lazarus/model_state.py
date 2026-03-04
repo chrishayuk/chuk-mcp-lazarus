@@ -75,7 +75,7 @@ class _InternalState(BaseModel):
     config: Any = None
     family_info: Any = None
     pipeline: Any = None
-    metadata: ModelMetadata = Field(default_factory=ModelMetadata)
+    metadata: ModelMetadata = Field(default_factory=ModelMetadata)  # type: ignore[arg-type]
     loaded: bool = False
 
 
@@ -208,6 +208,7 @@ class ModelState:
     @staticmethod
     def _count_parameters(model: Any) -> int:
         """Count total parameters in the model."""
+
         def _count(params: dict) -> int:
             total = 0
             for v in params.values():

@@ -40,8 +40,10 @@ def pp(label: str, result: dict) -> None:
     compact = {}
     for k, v in result.items():
         if isinstance(v, dict) and any(isinstance(vv, list) for vv in v.values()):
-            compact[k] = {kk: f"[{len(vv)} floats]" if isinstance(vv, list) and len(vv) > 5 else vv
-                          for kk, vv in v.items()}
+            compact[k] = {
+                kk: f"[{len(vv)} floats]" if isinstance(vv, list) and len(vv) > 5 else vv
+                for kk, vv in v.items()
+            }
         elif isinstance(v, list) and len(v) > 10:
             compact[k] = f"[{len(v)} items]"
         else:
@@ -65,6 +67,7 @@ def check(label: str, result: dict, required_keys: list[str]) -> bool:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 async def main(model_id: str) -> int:
     """Run all smoke tests. Returns 0 on success, 1 on failure."""
@@ -109,6 +112,11 @@ async def main(model_id: str) -> int:
         residual_decomposition,
         layer_clustering,
         logit_attribution,
+        head_attribution,
+        top_neurons,
+    )
+    from chuk_mcp_lazarus.tools.generation_tools import (
+        embedding_neighbors,
     )
 
     results: list[bool] = []
@@ -135,10 +143,21 @@ async def main(model_id: str) -> int:
     # ------------------------------------------------------------------
     result = await get_model_info()
     pp("get_model_info", result)
-    ok = check("get_model_info", result, [
-        "model_id", "family", "architecture", "num_layers", "hidden_dim",
-        "num_attention_heads", "num_kv_heads", "vocab_size", "parameter_count",
-    ])
+    ok = check(
+        "get_model_info",
+        result,
+        [
+            "model_id",
+            "family",
+            "architecture",
+            "num_layers",
+            "hidden_dim",
+            "num_attention_heads",
+            "num_kv_heads",
+            "vocab_size",
+            "parameter_count",
+        ],
+    )
     results.append(ok)
 
     # ------------------------------------------------------------------
@@ -150,9 +169,16 @@ async def main(model_id: str) -> int:
         temperature=0.0,
     )
     pp("generate_text", result)
-    ok = check("generate_text", result, [
-        "prompt", "output", "num_tokens", "temperature",
-    ])
+    ok = check(
+        "generate_text",
+        result,
+        [
+            "prompt",
+            "output",
+            "num_tokens",
+            "temperature",
+        ],
+    )
     if ok:
         print(f"  Output: {result['output'][:80]!r}")
         print(f"  Tokens generated: {result['num_tokens']}")
@@ -175,14 +201,22 @@ async def main(model_id: str) -> int:
         top_k=5,
     )
     pp("predict_next_token", result)
-    ok = check("predict_next_token", result, [
-        "prompt", "num_input_tokens", "predictions",
-    ])
+    ok = check(
+        "predict_next_token",
+        result,
+        [
+            "prompt",
+            "num_input_tokens",
+            "predictions",
+        ],
+    )
     if ok:
         print(f"  Input tokens: {result['num_input_tokens']}")
         for pred in result["predictions"][:3]:
-            print(f"    {pred['token']!r}: p={pred['probability']:.4f} "
-                  f"(log_p={pred['log_probability']:.2f})")
+            print(
+                f"    {pred['token']!r}: p={pred['probability']:.4f} "
+                f"(log_p={pred['log_probability']:.2f})"
+            )
         # Top prediction probability should be > 0
         if result["predictions"][0]["probability"] <= 0:
             print(f"  [{FAIL}] Top prediction probability should be > 0")
@@ -194,9 +228,16 @@ async def main(model_id: str) -> int:
     # ------------------------------------------------------------------
     result = await tokenize(text="The capital of France is Paris.")
     pp("tokenize", result)
-    ok = check("tokenize", result, [
-        "text", "num_tokens", "tokens", "token_ids",
-    ])
+    ok = check(
+        "tokenize",
+        result,
+        [
+            "text",
+            "num_tokens",
+            "tokens",
+            "token_ids",
+        ],
+    )
     if ok:
         print(f"  Tokens: {result['num_tokens']}")
         for tok in result["tokens"][:5]:
@@ -216,17 +257,26 @@ async def main(model_id: str) -> int:
         top_k=3,
     )
     pp("logit_lens", result)
-    ok = check("logit_lens", result, [
-        "prompt", "token_position", "num_layers_analyzed",
-        "predictions", "summary",
-    ])
+    ok = check(
+        "logit_lens",
+        result,
+        [
+            "prompt",
+            "token_position",
+            "num_layers_analyzed",
+            "predictions",
+            "summary",
+        ],
+    )
     if ok:
         print(f"  Layers analyzed: {result['num_layers_analyzed']}")
         print(f"  Final prediction: {result['summary']['final_prediction']!r}")
         print(f"  Emergence layer: {result['summary']['emergence_layer']}")
         for pred in result["predictions"]:
-            top3 = ", ".join(f"{t!r}:{p:.3f}" for t, p in
-                            zip(pred["top_tokens"][:3], pred["top_probabilities"][:3]))
+            top3 = ", ".join(
+                f"{t!r}:{p:.3f}"
+                for t, p in zip(pred["top_tokens"][:3], pred["top_probabilities"][:3])
+            )
             print(f"    Layer {pred['layer']:>3}: [{top3}]")
     results.append(ok)
 
@@ -247,17 +297,28 @@ async def main(model_id: str) -> int:
         layers=test_layers,
     )
     pp("track_token", result)
-    ok = check("track_token", result, [
-        "prompt", "target_token", "target_token_id", "token_position",
-        "layers", "peak_layer", "peak_probability",
-    ])
+    ok = check(
+        "track_token",
+        result,
+        [
+            "prompt",
+            "target_token",
+            "target_token_id",
+            "token_position",
+            "layers",
+            "peak_layer",
+            "peak_probability",
+        ],
+    )
     if ok:
         print(f"  Target: {result['target_token']!r} (id={result['target_token_id']})")
         print(f"  Emergence layer: {result['emergence_layer']}")
         print(f"  Peak layer: {result['peak_layer']} (p={result['peak_probability']:.4f})")
         for entry in result["layers"]:
             marker = " <-- top1" if entry["is_top1"] else ""
-            print(f"    Layer {entry['layer']:>3}: p={entry['probability']:.6f} rank={entry['rank']}{marker}")
+            print(
+                f"    Layer {entry['layer']:>3}: p={entry['probability']:.6f} rank={entry['rank']}{marker}"
+            )
     results.append(ok)
 
     # ------------------------------------------------------------------
@@ -278,10 +339,18 @@ async def main(model_id: str) -> int:
         top_k=3,
     )
     pp("attention_pattern", result)
-    ok = check("attention_pattern", result, [
-        "prompt", "token_position", "token_text", "tokens",
-        "num_layers_analyzed", "patterns",
-    ])
+    ok = check(
+        "attention_pattern",
+        result,
+        [
+            "prompt",
+            "token_position",
+            "token_text",
+            "tokens",
+            "num_layers_analyzed",
+            "patterns",
+        ],
+    )
     if ok:
         print(f"  Layers analyzed: {result['num_layers_analyzed']}")
         print(f"  Tokens: {result['tokens']}")
@@ -303,14 +372,24 @@ async def main(model_id: str) -> int:
         top_k=3,
     )
     pp("attention_heads", result)
-    ok = check("attention_heads", result, [
-        "prompt", "tokens", "num_heads_analyzed", "heads", "summary",
-    ])
+    ok = check(
+        "attention_heads",
+        result,
+        [
+            "prompt",
+            "tokens",
+            "num_heads_analyzed",
+            "heads",
+            "summary",
+        ],
+    )
     if ok:
         print(f"  Heads analyzed: {result['num_heads_analyzed']}")
         for h in result["heads"][:3]:
-            print(f"    Layer {h['layer']} Head {h['head']}: "
-                  f"entropy={h['entropy']:.4f} max_attn={h['max_attention']:.4f}")
+            print(
+                f"    Layer {h['layer']} Head {h['head']}: "
+                f"entropy={h['entropy']:.4f} max_attn={h['max_attention']:.4f}"
+            )
         print(f"  Most focused: {result['summary']['most_focused_heads'][:2]}")
         print(f"  Most diffuse: {result['summary']['most_diffuse_heads'][:2]}")
     results.append(ok)
@@ -332,9 +411,17 @@ async def main(model_id: str) -> int:
         token_position=-1,
     )
     pp("extract_activations", result)
-    ok = check("extract_activations", result, [
-        "prompt", "token_position", "token_text", "num_tokens", "activations",
-    ])
+    ok = check(
+        "extract_activations",
+        result,
+        [
+            "prompt",
+            "token_position",
+            "token_text",
+            "num_tokens",
+            "activations",
+        ],
+    )
     if ok:
         # Verify we got activations for each requested layer
         for layer in test_layers:
@@ -344,8 +431,10 @@ async def main(model_id: str) -> int:
                 ok = False
             else:
                 vec = result["activations"][key]
-                print(f"  Layer {layer}: {len(vec)}-dim vector, "
-                      f"range [{min(vec):.3f}, {max(vec):.3f}]")
+                print(
+                    f"  Layer {layer}: {len(vec)}-dim vector, "
+                    f"range [{min(vec):.3f}, {max(vec):.3f}]"
+                )
     results.append(ok)
 
     # ------------------------------------------------------------------
@@ -369,9 +458,17 @@ async def main(model_id: str) -> int:
         token_position=-1,
     )
     pp("compare_activations", result)
-    ok = check("compare_activations", result, [
-        "layer", "prompts", "cosine_similarity_matrix", "pca_2d", "centroid_distance",
-    ])
+    ok = check(
+        "compare_activations",
+        result,
+        [
+            "layer",
+            "prompts",
+            "cosine_similarity_matrix",
+            "pca_2d",
+            "centroid_distance",
+        ],
+    )
     if ok:
         sim = result["cosine_similarity_matrix"]
         print(f"  Similarity matrix: {len(sim)}x{len(sim[0])}")
@@ -409,10 +506,19 @@ async def main(model_id: str) -> int:
         probe_type="linear",
     )
     pp("train_probe", result)
-    ok = check("train_probe", result, [
-        "probe_name", "layer", "probe_type", "num_examples", "classes",
-        "train_accuracy", "val_accuracy",
-    ])
+    ok = check(
+        "train_probe",
+        result,
+        [
+            "probe_name",
+            "layer",
+            "probe_type",
+            "num_examples",
+            "classes",
+            "train_accuracy",
+            "val_accuracy",
+        ],
+    )
     if ok:
         print(f"  Classes: {result['classes']}")
         print(f"  Train accuracy: {result['train_accuracy']:.4f}")
@@ -443,10 +549,18 @@ async def main(model_id: str) -> int:
         examples=eval_examples,
     )
     pp("evaluate_probe", result)
-    ok = check("evaluate_probe", result, [
-        "probe_name", "layer", "accuracy", "per_class_accuracy",
-        "confusion_matrix", "predictions",
-    ])
+    ok = check(
+        "evaluate_probe",
+        result,
+        [
+            "probe_name",
+            "layer",
+            "accuracy",
+            "per_class_accuracy",
+            "confusion_matrix",
+            "predictions",
+        ],
+    )
     if ok:
         print(f"  Accuracy: {result['accuracy']:.4f}")
         print(f"  Predictions: {len(result['predictions'])} items")
@@ -473,16 +587,26 @@ async def main(model_id: str) -> int:
         examples=probe_examples,
     )
     pp("scan_probe_across_layers", result)
-    ok = check("scan_probe_across_layers", result, [
-        "probe_name_prefix", "layers_scanned", "accuracy_by_layer",
-        "peak_layer", "peak_val_accuracy", "interpretation",
-    ])
+    ok = check(
+        "scan_probe_across_layers",
+        result,
+        [
+            "probe_name_prefix",
+            "layers_scanned",
+            "accuracy_by_layer",
+            "peak_layer",
+            "peak_val_accuracy",
+            "interpretation",
+        ],
+    )
     if ok:
         print(f"  Layers scanned: {result['layers_scanned']}")
         print(f"  Peak layer: {result['peak_layer']} (val_acc={result['peak_val_accuracy']:.4f})")
         print(f"  Crossover: {result.get('crossover_layer', 'none')}")
         for entry in result["accuracy_by_layer"]:
-            print(f"    Layer {entry['layer']}: train={entry['train_accuracy']:.4f} val={entry['val_accuracy']:.4f}")
+            print(
+                f"    Layer {entry['layer']}: train={entry['train_accuracy']:.4f} val={entry['val_accuracy']:.4f}"
+            )
     results.append(ok)
 
     # ------------------------------------------------------------------
@@ -520,10 +644,18 @@ async def main(model_id: str) -> int:
         ],
     )
     pp("compute_steering_vector", result)
-    ok = check("compute_steering_vector", result, [
-        "vector_name", "layer", "vector_norm", "separability_score",
-        "num_positive", "num_negative",
-    ])
+    ok = check(
+        "compute_steering_vector",
+        result,
+        [
+            "vector_name",
+            "layer",
+            "vector_norm",
+            "separability_score",
+            "num_positive",
+            "num_negative",
+        ],
+    )
     if ok:
         print(f"  Vector norm: {result['vector_norm']:.4f}")
         print(f"  Separability: {result['separability_score']:.4f}")
@@ -554,11 +686,20 @@ async def main(model_id: str) -> int:
         max_new_tokens=20,
     )
     pp("steer_and_generate", result)
-    ok = check("steer_and_generate", result, [
-        "prompt", "vector_name", "alpha", "layer",
-        "steered_output", "baseline_output",
-        "steered_tokens", "baseline_tokens",
-    ])
+    ok = check(
+        "steer_and_generate",
+        result,
+        [
+            "prompt",
+            "vector_name",
+            "alpha",
+            "layer",
+            "steered_output",
+            "baseline_output",
+            "steered_tokens",
+            "baseline_tokens",
+        ],
+    )
     if ok:
         print(f"  Baseline: {result['baseline_output'][:80]!r}")
         print(f"  Steered:  {result['steered_output'][:80]!r}")
@@ -603,11 +744,20 @@ async def main(model_id: str) -> int:
         component="mlp",
     )
     pp("ablate_layers", result)
-    ok = check("ablate_layers", result, [
-        "prompt", "ablated_layers", "ablation_type", "component",
-        "ablated_output", "baseline_output",
-        "output_similarity", "disruption_score",
-    ])
+    ok = check(
+        "ablate_layers",
+        result,
+        [
+            "prompt",
+            "ablated_layers",
+            "ablation_type",
+            "component",
+            "ablated_output",
+            "baseline_output",
+            "output_similarity",
+            "disruption_score",
+        ],
+    )
     if ok:
         print(f"  Baseline: {result['baseline_output'][:60]!r}")
         print(f"  Ablated:  {result['ablated_output'][:60]!r}")
@@ -636,11 +786,20 @@ async def main(model_id: str) -> int:
         max_new_tokens=15,
     )
     pp("patch_activations", result)
-    ok = check("patch_activations", result, [
-        "source_prompt", "target_prompt", "patched_layer",
-        "patched_output", "baseline_output", "source_output",
-        "recovery_rate", "effect_size",
-    ])
+    ok = check(
+        "patch_activations",
+        result,
+        [
+            "source_prompt",
+            "target_prompt",
+            "patched_layer",
+            "patched_output",
+            "baseline_output",
+            "source_output",
+            "recovery_rate",
+            "effect_size",
+        ],
+    )
     if ok:
         print(f"  Source output:  {result['source_output'][:60]!r}")
         print(f"  Baseline (target): {result['baseline_output'][:60]!r}")
@@ -671,11 +830,21 @@ async def main(model_id: str) -> int:
         effect_threshold=0.05,
     )
     pp("trace_token (causal)", result)
-    ok = check("trace_token (causal)", result, [
-        "prompt", "target_token", "target_token_id", "baseline_prob",
-        "layer_effects", "critical_layers", "peak_layer", "peak_effect",
-        "effect_threshold",
-    ])
+    ok = check(
+        "trace_token (causal)",
+        result,
+        [
+            "prompt",
+            "target_token",
+            "target_token_id",
+            "baseline_prob",
+            "layer_effects",
+            "critical_layers",
+            "peak_layer",
+            "peak_effect",
+            "effect_threshold",
+        ],
+    )
     if ok:
         print(f"  Target: {result['target_token']!r} (id={result['target_token_id']})")
         print(f"  Baseline prob: {result['baseline_prob']:.4f}")
@@ -708,21 +877,34 @@ async def main(model_id: str) -> int:
         layers=test_layers,
     )
     pp("full_causal_trace", result)
-    ok = check("full_causal_trace", result, [
-        "prompt", "target_token", "tokens", "effects",
-        "critical_positions", "critical_layers",
-        "num_positions", "num_layers_tested",
-    ])
+    ok = check(
+        "full_causal_trace",
+        result,
+        [
+            "prompt",
+            "target_token",
+            "tokens",
+            "effects",
+            "critical_positions",
+            "critical_layers",
+            "num_positions",
+            "num_layers_tested",
+        ],
+    )
     if ok:
         print(f"  Tokens: {result['tokens']}")
         print(f"  Grid: {result['num_positions']} positions x {result['num_layers_tested']} layers")
         print(f"  Critical positions: {result['critical_positions']}")
         print(f"  Critical layers: {result['critical_layers']}")
         if len(result["effects"]) != result["num_positions"]:
-            print(f"  [{FAIL}] effects rows ({len(result['effects'])}) != num_positions ({result['num_positions']})")
+            print(
+                f"  [{FAIL}] effects rows ({len(result['effects'])}) != num_positions ({result['num_positions']})"
+            )
             ok = False
         elif result["effects"] and len(result["effects"][0]) != result["num_layers_tested"]:
-            print(f"  [{FAIL}] effects cols ({len(result['effects'][0])}) != num_layers_tested ({result['num_layers_tested']})")
+            print(
+                f"  [{FAIL}] effects cols ({len(result['effects'][0])}) != num_layers_tested ({result['num_layers_tested']})"
+            )
             ok = False
     results.append(ok)
 
@@ -747,24 +929,38 @@ async def main(model_id: str) -> int:
         position=-1,
     )
     pp("residual_decomposition", result)
-    ok = check("residual_decomposition", result, [
-        "prompt", "token_position", "token_text", "num_tokens",
-        "layers", "summary",
-    ])
+    ok = check(
+        "residual_decomposition",
+        result,
+        [
+            "prompt",
+            "token_position",
+            "token_text",
+            "num_tokens",
+            "layers",
+            "summary",
+        ],
+    )
     if ok:
         print(f"  Layers analyzed: {len(result['layers'])}")
         for entry in result["layers"]:
-            print(f"    Layer {entry['layer']:>3}: total={entry['total_norm']:.4f} "
-                  f"attn={entry['attention_fraction']:.3f} ffn={entry['ffn_fraction']:.3f} "
-                  f"[{entry['dominant_component']}]")
+            print(
+                f"    Layer {entry['layer']:>3}: total={entry['total_norm']:.4f} "
+                f"attn={entry['attention_fraction']:.3f} ffn={entry['ffn_fraction']:.3f} "
+                f"[{entry['dominant_component']}]"
+            )
         # Verify fractions sum to ~1.0
         for entry in result["layers"]:
             frac_sum = entry["attention_fraction"] + entry["ffn_fraction"]
             if abs(frac_sum - 1.0) > 0.01:
-                print(f"  [FAIL] Layer {entry['layer']} fractions sum to {frac_sum:.4f}, expected ~1.0")
+                print(
+                    f"  [FAIL] Layer {entry['layer']} fractions sum to {frac_sum:.4f}, expected ~1.0"
+                )
                 ok = False
-        print(f"  Peak: layer {result['summary']['peak_layer']} "
-              f"({result['summary']['peak_component']})")
+        print(
+            f"  Peak: layer {result['summary']['peak_layer']} "
+            f"({result['summary']['peak_component']})"
+        )
     results.append(ok)
 
     # ------------------------------------------------------------------
@@ -775,7 +971,9 @@ async def main(model_id: str) -> int:
         layers=[num_layers + 100],
     )
     ok = result.get("error") is True and result.get("error_type") == "LayerOutOfRange"
-    print(f"\n  [{'PASS' if ok else 'FAIL'}] residual_decomposition error envelope (LayerOutOfRange)")
+    print(
+        f"\n  [{'PASS' if ok else 'FAIL'}] residual_decomposition error envelope (LayerOutOfRange)"
+    )
     results.append(ok)
 
     # ------------------------------------------------------------------
@@ -787,16 +985,25 @@ async def main(model_id: str) -> int:
         position=-1,
     )
     pp("layer_clustering", result)
-    ok = check("layer_clustering", result, [
-        "prompts", "token_position", "num_layers_analyzed",
-        "layers", "summary",
-    ])
+    ok = check(
+        "layer_clustering",
+        result,
+        [
+            "prompts",
+            "token_position",
+            "num_layers_analyzed",
+            "layers",
+            "summary",
+        ],
+    )
     if ok:
         print(f"  Layers analyzed: {result['num_layers_analyzed']}")
         for entry in result["layers"]:
             sim = entry["similarity_matrix"]
-            print(f"    Layer {entry['layer']:>3}: mean_sim={entry['mean_similarity']:.4f} "
-                  f"matrix={len(sim)}x{len(sim[0])}")
+            print(
+                f"    Layer {entry['layer']:>3}: mean_sim={entry['mean_similarity']:.4f} "
+                f"matrix={len(sim)}x{len(sim[0])}"
+            )
             # Verify matrix is square and right size
             if len(sim) != 2 or len(sim[0]) != 2:
                 print(f"  [FAIL] Expected 2x2 matrix, got {len(sim)}x{len(sim[0])}")
@@ -825,27 +1032,44 @@ async def main(model_id: str) -> int:
         position=-1,
     )
     pp("logit_attribution", result)
-    ok = check("logit_attribution", result, [
-        "prompt", "token_position", "token_text", "target_token",
-        "target_token_id", "model_logit", "model_probability",
-        "embedding_logit", "layers", "attribution_sum", "summary",
-    ])
+    ok = check(
+        "logit_attribution",
+        result,
+        [
+            "prompt",
+            "token_position",
+            "token_text",
+            "target_token",
+            "target_token_id",
+            "model_logit",
+            "model_probability",
+            "embedding_logit",
+            "layers",
+            "attribution_sum",
+            "summary",
+        ],
+    )
     if ok:
         print(f"  Target: {result['target_token']!r} (id={result['target_token_id']})")
-        print(f"  Model logit: {result['model_logit']:.4f}  prob: {result['model_probability']:.4f}")
+        print(
+            f"  Model logit: {result['model_logit']:.4f}  prob: {result['model_probability']:.4f}"
+        )
         print(f"  Embedding logit: {result['embedding_logit']:.4f}")
         print(f"  Attribution sum: {result['attribution_sum']:.4f}")
         for entry in result["layers"]:
-            print(f"    Layer {entry['layer']:>3}: attn={entry['attention_logit']:>+8.3f} "
-                  f"ffn={entry['ffn_logit']:>+8.3f} total={entry['total_logit']:>+8.3f} "
-                  f"cum={entry['cumulative_logit']:>+8.3f} "
-                  f"attn→{entry['attention_top_token']!r} ffn→{entry['ffn_top_token']!r}")
+            print(
+                f"    Layer {entry['layer']:>3}: attn={entry['attention_logit']:>+8.3f} "
+                f"ffn={entry['ffn_logit']:>+8.3f} total={entry['total_logit']:>+8.3f} "
+                f"cum={entry['cumulative_logit']:>+8.3f} "
+                f"attn→{entry['attention_top_token']!r} ffn→{entry['ffn_top_token']!r}"
+            )
         # Verify probability is in [0, 1]
         if not (0.0 <= result["model_probability"] <= 1.0):
             print(f"  [{FAIL}] model_probability {result['model_probability']:.4f} not in [0, 1]")
             ok = False
         # Verify attribution_sum is finite
         import math
+
         if not math.isfinite(result["attribution_sum"]):
             print(f"  [{FAIL}] attribution_sum is not finite")
             ok = False
@@ -860,6 +1084,223 @@ async def main(model_id: str) -> int:
     )
     ok = result.get("error") is True and result.get("error_type") == "LayerOutOfRange"
     print(f"\n  [{'PASS' if ok else 'FAIL'}] logit_attribution error envelope (LayerOutOfRange)")
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 43. head_attribution
+    # ------------------------------------------------------------------
+    result = await head_attribution(
+        prompt="The capital of France is",
+        layer=mid_layer,
+        position=-1,
+    )
+    pp("head_attribution", result)
+    ok = check(
+        "head_attribution",
+        result,
+        [
+            "prompt",
+            "layer",
+            "token_position",
+            "token_text",
+            "target_token",
+            "target_token_id",
+            "num_heads",
+            "heads",
+            "layer_total_logit",
+            "summary",
+        ],
+    )
+    if ok:
+        print(f"  Target: {result['target_token']!r} (id={result['target_token_id']})")
+        print(f"  Num heads: {result['num_heads']}")
+        print(f"  Layer total logit: {result['layer_total_logit']:.4f}")
+        for h in result["heads"][:3]:
+            print(
+                f"    Head {h['head']}: logit={h['logit_contribution']:+.4f} "
+                f"frac={h['fraction_of_layer']:.3f} top→{h['top_token']!r}"
+            )
+        head_sum = sum(h["logit_contribution"] for h in result["heads"])
+        if abs(head_sum - result["layer_total_logit"]) > 0.5:
+            print(
+                f"  [{FAIL}] Head sum {head_sum:.4f} != layer_total {result['layer_total_logit']:.4f}"
+            )
+            ok = False
+        import math
+
+        if not math.isfinite(result["layer_total_logit"]):
+            print(f"  [{FAIL}] layer_total_logit not finite")
+            ok = False
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 44. head_attribution (error case: layer out of range)
+    # ------------------------------------------------------------------
+    result = await head_attribution(
+        prompt="test",
+        layer=num_layers + 100,
+    )
+    ok = result.get("error") is True and result.get("error_type") == "LayerOutOfRange"
+    print(f"\n  [{'PASS' if ok else 'FAIL'}] head_attribution error envelope (LayerOutOfRange)")
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 45. top_neurons
+    # ------------------------------------------------------------------
+    result = await top_neurons(
+        prompt="The capital of France is",
+        layer=mid_layer,
+        position=-1,
+        top_k=10,
+    )
+    pp("top_neurons", result)
+    ok = check(
+        "top_neurons",
+        result,
+        [
+            "prompt",
+            "layer",
+            "token_position",
+            "token_text",
+            "target_token",
+            "target_token_id",
+            "mlp_type",
+            "intermediate_size",
+            "top_k",
+            "top_positive",
+            "top_negative",
+            "total_neuron_logit",
+            "summary",
+        ],
+    )
+    if ok:
+        print(f"  Target: {result['target_token']!r}")
+        print(f"  MLP type: {result['mlp_type']}")
+        print(f"  Intermediate size: {result['intermediate_size']}")
+        print(f"  Total neuron logit: {result['total_neuron_logit']:.4f}")
+        for n in result["top_positive"][:3]:
+            print(
+                f"    Neuron {n['neuron_index']:>5}: act={n['activation']:+.4f} "
+                f"logit={n['logit_contribution']:+.4f} top→{n['top_token']!r}"
+            )
+        import math
+
+        if not math.isfinite(result["total_neuron_logit"]):
+            print(f"  [{FAIL}] total_neuron_logit not finite")
+            ok = False
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 46. top_neurons (error case: layer out of range)
+    # ------------------------------------------------------------------
+    result = await top_neurons(
+        prompt="test",
+        layer=num_layers + 100,
+    )
+    ok = result.get("error") is True and result.get("error_type") == "LayerOutOfRange"
+    print(f"\n  [{'PASS' if ok else 'FAIL'}] top_neurons error envelope (LayerOutOfRange)")
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 47. embedding_neighbors
+    # ------------------------------------------------------------------
+    result = await embedding_neighbors(
+        token="the",
+        top_k=10,
+    )
+    pp("embedding_neighbors", result)
+    ok = check(
+        "embedding_neighbors",
+        result,
+        [
+            "query_token",
+            "query_token_id",
+            "resolved_form",
+            "embedding_dim",
+            "vocab_size",
+            "top_k",
+            "neighbors",
+            "self_similarity",
+        ],
+    )
+    if ok:
+        print(f"  Query: {result['query_token']!r} → {result['resolved_form']!r}")
+        print(f"  Embedding dim: {result['embedding_dim']}")
+        print(f"  Self similarity: {result['self_similarity']:.6f}")
+        if abs(result["self_similarity"] - 1.0) > 0.01:
+            print(f"  [{FAIL}] Self similarity {result['self_similarity']:.6f} not ~1.0")
+            ok = False
+        if len(result["neighbors"]) != 10:
+            print(f"  [{FAIL}] Expected 10 neighbors, got {len(result['neighbors'])}")
+            ok = False
+        for n in result["neighbors"][:5]:
+            print(f"    {n['token']!r} (id={n['token_id']}): sim={n['cosine_similarity']:.4f}")
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 48. embedding_neighbors (error case: invalid top_k)
+    # ------------------------------------------------------------------
+    result = await embedding_neighbors(
+        token="the",
+        top_k=0,
+    )
+    ok = result.get("error") is True and result.get("error_type") == "InvalidInput"
+    print(f"\n  [{'PASS' if ok else 'FAIL'}] embedding_neighbors error envelope (InvalidInput)")
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 49. attention_pattern (error case: invalid top_k)
+    # ------------------------------------------------------------------
+    result = await attention_pattern(
+        prompt="Hello",
+        top_k=0,
+    )
+    ok = result.get("error") is True and result.get("error_type") == "InvalidInput"
+    print(f"\n  [{'PASS' if ok else 'FAIL'}] attention_pattern error envelope (invalid top_k)")
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 50. attention_heads (error case: invalid top_k)
+    # ------------------------------------------------------------------
+    result = await attention_heads(
+        prompt="Hello",
+        top_k=101,
+    )
+    ok = result.get("error") is True and result.get("error_type") == "InvalidInput"
+    print(f"\n  [{'PASS' if ok else 'FAIL'}] attention_heads error envelope (invalid top_k)")
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 51. ablate_layers (error case: empty layers)
+    # ------------------------------------------------------------------
+    result = await ablate_layers(
+        prompt="Hello",
+        layers=[],
+    )
+    ok = result.get("error") is True and result.get("error_type") == "InvalidInput"
+    print(f"\n  [{'PASS' if ok else 'FAIL'}] ablate_layers error envelope (empty layers)")
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 52. logit_attribution (error case: empty layers)
+    # ------------------------------------------------------------------
+    result = await logit_attribution(
+        prompt="Hello",
+        layers=[],
+    )
+    ok = result.get("error") is True and result.get("error_type") == "InvalidInput"
+    print(f"\n  [{'PASS' if ok else 'FAIL'}] logit_attribution error envelope (empty layers)")
+    results.append(ok)
+
+    # ------------------------------------------------------------------
+    # 53. generate_text (error case: invalid max_new_tokens)
+    # ------------------------------------------------------------------
+    result = await generate_text(
+        prompt="Hello",
+        max_new_tokens=0,
+    )
+    ok = result.get("error") is True and result.get("error_type") == "InvalidInput"
+    print(f"\n  [{'PASS' if ok else 'FAIL'}] generate_text error envelope (invalid max_new_tokens)")
     results.append(ok)
 
     # ------------------------------------------------------------------

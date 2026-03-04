@@ -44,20 +44,26 @@ chuk-mcp-lazarus/
 │       ├── _serialize.py            # mx.array / np.ndarray -> JSON-safe
 │       ├── _generate.py             # Shared text generation helper
 │       ├── _compare.py              # Shared comparison kernels
+│       ├── _extraction.py           # Shared activation extraction
 │       └── tools/
 │           ├── __init__.py
 │           ├── model_tools.py       # load_model, get_model_info
+│           ├── generation_tools.py  # generate_text, predict_next_token,
+│           │                        #   tokenize, logit_lens, track_token,
+│           │                        #   embedding_neighbors
 │           ├── activation_tools.py  # extract_activations, compare_activations
+│           ├── attention_tools.py   # attention_pattern, attention_heads
 │           ├── probe_tools.py       # train_probe, evaluate_probe,
 │           │                        #   scan_probe_across_layers, list_probes
 │           ├── steering_tools.py    # compute_steering_vector,
 │           │                        #   steer_and_generate, list_steering_vectors
 │           ├── ablation_tools.py    # ablate_layers, patch_activations
-│           ├── generation_tools.py  # generate_text, predict_next_token,
-│           │                        #   tokenize, logit_lens
-│           └── comparison_tools.py # load_comparison_model, compare_weights,
-│                                   #   compare_representations, compare_attention,
-│                                   #   compare_generations, unload_comparison_model
+│           ├── causal_tools.py      # trace_token, full_causal_trace
+│           ├── residual_tools.py    # residual_decomposition, layer_clustering,
+│           │                        #   logit_attribution, head_attribution, top_neurons
+│           └── comparison_tools.py  # load_comparison_model, compare_weights,
+│                                    #   compare_representations, compare_attention,
+│                                    #   compare_generations, unload_comparison_model
 ├── tests/
 ├── pyproject.toml
 ├── ARCHITECTURE.md
@@ -73,7 +79,7 @@ chuk-mcp-lazarus/
 ```toml
 [project]
 name = "chuk-mcp-lazarus"
-version = "0.4.0"
+version = "0.9.0"
 requires-python = ">=3.11"
 
 dependencies = [
@@ -81,8 +87,6 @@ dependencies = [
     "chuk-lazarus>=0.4",
     "scikit-learn>=1.4",
     "numpy>=1.26",
-    "mlx>=0.18",
-    "mlx-lm>=0.18",
 ]
 ```
 
@@ -96,7 +100,7 @@ from chuk_mcp_server import ChukMCPServer
 
 mcp = ChukMCPServer(
     name="chuk-mcp-lazarus",
-    version="0.1.0",
+    version="0.9.0",
     title="Lazarus Interpretability Server",
     description=(
         "Mechanistic interpretability toolkit. "
@@ -112,7 +116,7 @@ mcp = ChukMCPServer(
 from .server import mcp
 from .tools import *          # noqa: F403 -- triggers @mcp.tool() registration
 
-__version__ = "0.1.0"
+__version__ = "0.9.0"
 __all__ = ["mcp"]
 ```
 
@@ -579,9 +583,302 @@ Uses `ModelHooks.get_layer_logits()` to project each layer's hidden
 state through the model's unembedding matrix. The `summary` field
 reports where the final-layer prediction first emerges.
 
+#### `track_token`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def track_token(
+    prompt: str,
+    token: str,
+    layers: list[int] | None = None,
+) -> dict:
+    """
+    Track a specific token's probability and rank across all layers
+    using the logit lens technique.
+
+    Args:
+        prompt: Input text.
+        token:  Target token to track.
+        layers: Layer indices. None = all layers.
+
+    Returns:
+        prompt, target_token, target_token_id, emergence_layer,
+        peak_layer, peak_probability,
+        layers: [{layer, probability, rank, is_top1}]
+    """
+```
+
+#### `embedding_neighbors`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def embedding_neighbors(
+    token: str,
+    top_k: int = 10,
+) -> dict:
+    """
+    Find nearest tokens in embedding space by cosine similarity.
+    No forward pass needed -- operates directly on the embedding matrix.
+
+    Args:
+        token: Target token (tries bare and space-prefixed forms).
+        top_k: Number of neighbors to return (1-100, default: 10).
+
+    Returns:
+        query_token, query_token_id, resolved_form, embedding_dim,
+        vocab_size, top_k, self_similarity,
+        neighbors: [{token, token_id, cosine_similarity}]
+    """
+```
+
 ---
 
-### Group 7 -- Model Comparison
+### Group 7 -- Attention Analysis
+
+#### `attention_pattern`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def attention_pattern(
+    prompt: str,
+    layers: list[int],
+    token_position: int = -1,
+    top_k: int = 5,
+) -> dict:
+    """
+    Extract per-head attention weights at specified layers showing
+    which tokens each head attends to.
+
+    Args:
+        prompt:         Input text.
+        layers:         Layer indices.
+        token_position: Token to analyze (-1 = last).
+        top_k:          Top attended tokens per head (1-100).
+
+    Returns:
+        prompt, tokens, token_position, token_text,
+        patterns: [{layer, num_heads, heads: [{head, top_attended}]}]
+    """
+```
+
+#### `attention_heads`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def attention_heads(
+    prompt: str,
+    layers: list[int] | None = None,
+    top_k: int = 3,
+) -> dict:
+    """
+    Compute per-head entropy and focus for every head across layers.
+    Low entropy = focused head; high entropy = diffuse head.
+
+    Args:
+        prompt: Input text.
+        layers: Layer indices. None = all layers.
+        top_k:  Top attended positions per head (1-100).
+
+    Returns:
+        prompt, num_layers, total_heads,
+        heads: [{layer, head, entropy, max_attention, top_attended_positions}],
+        summary: {most_focused_heads, most_diffuse_heads}
+    """
+```
+
+---
+
+### Group 8 -- Causal Tracing
+
+#### `trace_token`
+
+```python
+@mcp.tool(read_only_hint=True)
+async def trace_token(
+    prompt: str,
+    token: str,
+    layers: list[int] | None = None,
+    effect_threshold: float = 0.05,
+) -> dict:
+    """
+    Which layers are causally responsible for predicting a specific token?
+    Ablates each layer and measures the effect on the target token's probability.
+
+    Args:
+        prompt:           Input text.
+        token:            Target token.
+        layers:           Layer indices. None = all layers.
+        effect_threshold: Minimum effect to be considered critical.
+
+    Returns:
+        prompt, target_token, baseline_prob, peak_layer, peak_effect,
+        critical_layers,
+        layer_effects: [{layer, effect, ablated_prob}]
+    """
+```
+
+#### `full_causal_trace`
+
+```python
+@mcp.tool(read_only_hint=True)
+async def full_causal_trace(
+    prompt: str,
+    token: str,
+    layers: list[int] | None = None,
+    positions: list[int] | None = None,
+) -> dict:
+    """
+    Position × layer causal heatmap (Meng et al. style).
+    Tests every (position, layer) combination to find the full circuit.
+
+    Args:
+        prompt:    Input text.
+        token:     Target token.
+        layers:    Layer indices. None = sample layers.
+        positions: Token positions. None = all positions.
+
+    Returns:
+        prompt, target_token, num_layers, num_positions, tokens,
+        heatmap: [{position, layer, effect}],
+        peak: {position, layer, effect}
+    """
+```
+
+---
+
+### Group 9 -- Residual Stream Analysis
+
+#### `residual_decomposition`
+
+```python
+@mcp.tool(read_only_hint=True)
+async def residual_decomposition(
+    prompt: str,
+    layers: list[int] | None = None,
+    token_position: int = -1,
+) -> dict:
+    """
+    Separate attention vs MLP contribution to the residual stream per layer.
+
+    Returns:
+        prompt, token_position, token_text,
+        layers: [{layer, attention_norm, ffn_norm, attention_cosine_to_residual,
+                  ffn_cosine_to_residual, dominant_component}],
+        summary: {attention_dominant_count, ffn_dominant_count}
+    """
+```
+
+#### `layer_clustering`
+
+```python
+@mcp.tool(read_only_hint=True)
+async def layer_clustering(
+    prompts: list[str],
+    layers: list[int] | None = None,
+    token_position: int = -1,
+) -> dict:
+    """
+    Cluster prompts by representation similarity at each layer,
+    measuring separability and convergence.
+
+    Returns:
+        prompts, token_position,
+        layers: [{layer, cosine_similarity_matrix, centroid_distance,
+                  cluster_separation}],
+        summary: {peak_separation_layer, convergence_layer}
+    """
+```
+
+#### `logit_attribution`
+
+```python
+@mcp.tool(read_only_hint=True)
+async def logit_attribution(
+    prompt: str,
+    target_token: str | None = None,
+    layers: list[int] | None = None,
+    token_position: int = -1,
+) -> dict:
+    """
+    Direct logit attribution: per-layer component contributions
+    to the predicted token's logit.
+
+    Args:
+        prompt:       Input text.
+        target_token: Token to attribute. None = top predicted token.
+        layers:       Layer indices. None = all layers.
+        token_position: Token position (-1 = last).
+
+    Returns:
+        prompt, target_token, target_token_id, token_position, token_text,
+        layers: [{layer, attention_logit, ffn_logit, total_logit}],
+        summary: {peak_attention_layer, peak_ffn_layer, total_logit}
+    """
+```
+
+#### `head_attribution`
+
+```python
+@mcp.tool(read_only_hint=True)
+async def head_attribution(
+    prompt: str,
+    layer: int,
+    target_token: str | None = None,
+    token_position: int = -1,
+) -> dict:
+    """
+    Per-head logit attribution at a specific layer: which attention heads
+    push toward the target token.
+
+    Args:
+        prompt:       Input text.
+        layer:        Layer to decompose.
+        target_token: Token to attribute. None = top predicted token.
+        token_position: Token position (-1 = last).
+
+    Returns:
+        prompt, layer, token_position, token_text, target_token, target_token_id,
+        num_heads,
+        heads: [{head, logit_contribution, fraction_of_layer, top_token}],
+        layer_total_logit,
+        summary: {top_positive_head, top_negative_head, concentration}
+    """
+```
+
+#### `top_neurons`
+
+```python
+@mcp.tool(read_only_hint=True)
+async def top_neurons(
+    prompt: str,
+    layer: int,
+    target_token: str | None = None,
+    top_k: int = 10,
+    token_position: int = -1,
+) -> dict:
+    """
+    Per-neuron MLP identification: which neurons push toward the target token.
+
+    Args:
+        prompt:       Input text.
+        layer:        Layer to analyze.
+        target_token: Token to attribute. None = top predicted token.
+        top_k:        Number of top neurons to return (default: 10).
+        token_position: Token position (-1 = last).
+
+    Returns:
+        prompt, layer, token_position, token_text, target_token, target_token_id,
+        mlp_type, intermediate_size, top_k,
+        top_positive: [{neuron_index, activation, logit_contribution, top_token}],
+        top_negative: [{neuron_index, activation, logit_contribution, top_token}],
+        total_neuron_logit,
+        summary: {concentration, sparsity, top_neuron_share}
+    """
+```
+
+---
+
+### Group 10 -- Model Comparison
 
 #### `load_comparison_model`
 
@@ -873,4 +1170,4 @@ German."*
 
 ## Version
 
-`0.4.0` -- Phase 1 complete + model comparison + generation: 23 tools, 4 resources, end-to-end demos. Apache 2.0.
+`0.9.0` -- 34 tools, 4 resources, 9 demo scripts, 53 smoke tests. Apache 2.0.

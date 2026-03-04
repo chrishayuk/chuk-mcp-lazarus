@@ -9,16 +9,17 @@ translation prompt from French output to German output.
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import logging
 from typing import Any
 
-import mlx.core as mx
 import numpy as np
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
+from .._extraction import extract_activation_at_layer
 from .._generate import generate_text
-from .._serialize import cosine_similarity_matrix, hidden_state_to_list
+from .._serialize import cosine_similarity_matrix
 from ..errors import ToolError, make_error
 from ..model_state import ModelState
 from ..server import mcp
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Result models
 # ---------------------------------------------------------------------------
+
 
 class ComputeVectorResult(BaseModel):
     """Result from compute_steering_vector."""
@@ -67,24 +69,6 @@ class ListVectorsResult(BaseModel):
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-def _extract_activation(
-    model: Any,
-    config: Any,
-    tokenizer: Any,
-    prompt: str,
-    layer: int,
-    token_position: int = -1,
-) -> list[float]:
-    """Extract activation vector at one layer for one prompt."""
-    from chuk_lazarus.introspection.hooks import CaptureConfig, ModelHooks
-
-    input_ids = mx.array(tokenizer.encode(prompt, add_special_tokens=True))
-    hooks = ModelHooks(model, model_config=config)
-    hooks.configure(CaptureConfig(layers=[layer], capture_hidden_states=True))
-    hooks.forward(input_ids)
-    mx.eval(hooks.state.hidden_states)
-    return hidden_state_to_list(hooks.state.hidden_states[layer], position=token_position)
 
 
 def _mean_vector(vectors: list[list[float]]) -> np.ndarray:
@@ -145,6 +129,7 @@ def _generate_steered(
 # Tools
 # ---------------------------------------------------------------------------
 
+
 @mcp.tool()
 async def compute_steering_vector(
     vector_name: str,
@@ -199,66 +184,83 @@ async def compute_steering_vector(
         )
 
     try:
-        # Extract activations for both sets
-        pos_vecs: list[list[float]] = []
-        for prompt in positive_prompts:
-            vec = _extract_activation(
-                state.model, state.config, state.tokenizer,
-                prompt, layer, token_position,
-            )
-            pos_vecs.append(vec)
-
-        neg_vecs: list[list[float]] = []
-        for prompt in negative_prompts:
-            vec = _extract_activation(
-                state.model, state.config, state.tokenizer,
-                prompt, layer, token_position,
-            )
-            neg_vecs.append(vec)
-
-        # Compute steering vector: mean_positive - mean_negative
-        pos_mean = _mean_vector(pos_vecs)
-        neg_mean = _mean_vector(neg_vecs)
-        direction = pos_mean - neg_mean
-
-        vector_norm = float(np.linalg.norm(direction))
-        sim_pos = _mean_pairwise_similarity(pos_vecs)
-        sim_neg = _mean_pairwise_similarity(neg_vecs)
-
-        # Separability: cosine distance between centroids
-        cos_sim = float(
-            np.dot(pos_mean, neg_mean)
-            / (np.linalg.norm(pos_mean) * np.linalg.norm(neg_mean) + 1e-8)
+        result = await asyncio.to_thread(
+            _compute_steering_vector_impl,
+            state.model,
+            state.config,
+            state.tokenizer,
+            vector_name,
+            layer,
+            positive_prompts,
+            negative_prompts,
+            token_position,
         )
-        separability = 1.0 - cos_sim
-
-        # Store
-        metadata = VectorMetadata(
-            name=vector_name,
-            layer=layer,
-            vector_norm=vector_norm,
-            separability_score=separability,
-            num_positive=len(positive_prompts),
-            num_negative=len(negative_prompts),
-            computed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        )
-        SteeringVectorRegistry.get().store(vector_name, direction, metadata)
-
-        result = ComputeVectorResult(
-            vector_name=vector_name,
-            layer=layer,
-            vector_norm=round(vector_norm, 4),
-            cosine_similarity_within_positive=round(sim_pos, 4),
-            cosine_similarity_within_negative=round(sim_neg, 4),
-            separability_score=round(separability, 4),
-            num_positive=len(positive_prompts),
-            num_negative=len(negative_prompts),
-        )
-        return result.model_dump()
+        return result
 
     except Exception as e:
         logger.exception("compute_steering_vector failed")
         return make_error(ToolError.EXTRACTION_FAILED, str(e), "compute_steering_vector")
+
+
+def _compute_steering_vector_impl(
+    model: Any,
+    config: Any,
+    tokenizer: Any,
+    vector_name: str,
+    layer: int,
+    positive_prompts: list[str],
+    negative_prompts: list[str],
+    token_position: int,
+) -> dict:
+    """Sync implementation of compute_steering_vector."""
+    pos_vecs: list[list[float]] = []
+    for prompt in positive_prompts:
+        vec = extract_activation_at_layer(model, config, tokenizer, prompt, layer, token_position)
+        pos_vecs.append(vec)
+
+    neg_vecs: list[list[float]] = []
+    for prompt in negative_prompts:
+        vec = extract_activation_at_layer(model, config, tokenizer, prompt, layer, token_position)
+        neg_vecs.append(vec)
+
+    # Compute steering vector: mean_positive - mean_negative
+    pos_mean = _mean_vector(pos_vecs)
+    neg_mean = _mean_vector(neg_vecs)
+    direction = pos_mean - neg_mean
+
+    vector_norm = float(np.linalg.norm(direction))
+    sim_pos = _mean_pairwise_similarity(pos_vecs)
+    sim_neg = _mean_pairwise_similarity(neg_vecs)
+
+    # Separability: cosine distance between centroids
+    cos_sim = float(
+        np.dot(pos_mean, neg_mean) / (np.linalg.norm(pos_mean) * np.linalg.norm(neg_mean) + 1e-8)
+    )
+    separability = 1.0 - cos_sim
+
+    # Store
+    metadata = VectorMetadata(
+        name=vector_name,
+        layer=layer,
+        vector_norm=vector_norm,
+        separability_score=separability,
+        num_positive=len(positive_prompts),
+        num_negative=len(negative_prompts),
+        computed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    )
+    SteeringVectorRegistry.get().store(vector_name, direction, metadata)
+
+    result = ComputeVectorResult(
+        vector_name=vector_name,
+        layer=layer,
+        vector_norm=round(vector_norm, 4),
+        cosine_similarity_within_positive=round(sim_pos, 4),
+        cosine_similarity_within_negative=round(sim_neg, 4),
+        separability_score=round(separability, 4),
+        num_positive=len(positive_prompts),
+        num_negative=len(negative_prompts),
+    )
+    return result.model_dump()
 
 
 @mcp.tool()
@@ -300,35 +302,74 @@ async def steer_and_generate(
 
     direction, meta = entry
 
+    if max_new_tokens < 1 or max_new_tokens > 1000:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            f"max_new_tokens must be 1-1000, got {max_new_tokens}.",
+            "steer_and_generate",
+        )
+
     try:
-        # Baseline generation (no steering)
-        baseline_text, baseline_tokens = generate_text(
-            state.model, state.tokenizer,
-            prompt, max_new_tokens=max_new_tokens,
+        result = await asyncio.to_thread(
+            _steer_and_generate_impl,
+            state.model,
+            state.tokenizer,
+            state.config,
+            prompt,
+            vector_name,
+            direction,
+            meta.layer,
+            alpha,
+            max_new_tokens,
         )
-
-        # Steered generation
-        steered_text, steered_tokens = _generate_steered(
-            state.model, state.tokenizer, state.config,
-            prompt, direction, meta.layer,
-            alpha=alpha, max_new_tokens=max_new_tokens,
-        )
-
-        result = SteerAndGenerateResult(
-            prompt=prompt,
-            vector_name=vector_name,
-            alpha=alpha,
-            layer=meta.layer,
-            steered_output=steered_text,
-            baseline_output=baseline_text,
-            steered_tokens=steered_tokens,
-            baseline_tokens=baseline_tokens,
-        )
-        return result.model_dump()
+        return result
 
     except Exception as e:
         logger.exception("steer_and_generate failed")
         return make_error(ToolError.GENERATION_FAILED, str(e), "steer_and_generate")
+
+
+def _steer_and_generate_impl(
+    model: Any,
+    tokenizer: Any,
+    config: Any,
+    prompt: str,
+    vector_name: str,
+    direction: np.ndarray,
+    layer: int,
+    alpha: float,
+    max_new_tokens: int,
+) -> dict:
+    """Sync implementation of steer_and_generate."""
+    baseline_text, baseline_tokens = generate_text(
+        model,
+        tokenizer,
+        prompt,
+        max_new_tokens=max_new_tokens,
+    )
+
+    steered_text, steered_tokens = _generate_steered(
+        model,
+        tokenizer,
+        config,
+        prompt,
+        direction,
+        layer,
+        alpha=alpha,
+        max_new_tokens=max_new_tokens,
+    )
+
+    result = SteerAndGenerateResult(
+        prompt=prompt,
+        vector_name=vector_name,
+        alpha=alpha,
+        layer=layer,
+        steered_output=steered_text,
+        baseline_output=baseline_text,
+        steered_tokens=steered_tokens,
+        baseline_tokens=baseline_tokens,
+    )
+    return result.model_dump()
 
 
 @mcp.tool(read_only_hint=True, idempotent_hint=True)

@@ -47,12 +47,14 @@ def generate_text(
         if next_id == eos_token_id:
             break
 
-        generated_ids.append(next_id)
+        generated_ids.append(int(next_id))
         next_token = mx.array([next_id])
-        current_ids = mx.concatenate([
-            current_ids.reshape(-1) if current_ids.ndim > 1 else current_ids,
-            next_token,
-        ])
+        current_ids = mx.concatenate(
+            [
+                current_ids.reshape(-1) if current_ids.ndim > 1 else current_ids,
+                next_token,
+            ]
+        )
 
     output_text = tokenizer.decode(generated_ids, skip_special_tokens=True)
     return output_text, len(generated_ids)

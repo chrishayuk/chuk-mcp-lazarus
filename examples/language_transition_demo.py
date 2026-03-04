@@ -2,22 +2,25 @@
 """
 Language transition demo: the flagship chuk-mcp-lazarus experiment.
 
-This script follows a 15-step Claude workflow:
-1.  Load model
-2.  Inspect architecture
-3.  Tokenize a multilingual prompt to see token structure
-4.  Generate text to see baseline model output
-5.  Sanity-check activations
-6.  Compare multilingual representations at early layer
-7.  Compare multilingual representations at late layer
-8.  Apply logit lens to see prediction evolution
-9.  Track a specific token's probability across layers
-10. Scan probes across all layers to find the crossover
-11. Evaluate the best probe on held-out data
-12. Compute a steering vector at the crossover layer
-13. Steer generation: push output toward a different language
-14. Iterate with different alpha values
-15. Causal tracing: prove which layers are necessary
+This script follows a 15-step Claude workflow (with two bonus registry
+inspection steps 11b and 12b):
+1.   Load model
+2.   Inspect architecture
+3.   Tokenize a multilingual prompt to see token structure
+4.   Generate text to see baseline model output
+5.   Sanity-check activations
+6.   Compare multilingual representations at early layer
+7.   Compare multilingual representations at late layer
+8.   Apply logit lens to see prediction evolution
+9.   Track a specific token's probability across layers
+10.  Scan probes across all layers to find the crossover
+11.  Evaluate the best probe on held-out data
+11b. List trained probes (registry inspection)
+12.  Compute a steering vector at the crossover layer
+12b. List steering vectors (registry inspection)
+13.  Steer generation: push output toward a different language
+14.  Iterate with different alpha values
+15.  Causal tracing: prove which layers are necessary
 
 Usage:
     python examples/language_transition_demo.py
@@ -43,8 +46,10 @@ def pp(label: str, result: dict) -> None:
     compact = {}
     for k, v in result.items():
         if isinstance(v, dict) and any(isinstance(vv, list) for vv in v.values()):
-            compact[k] = {kk: f"[{len(vv)} floats]" if isinstance(vv, list) and len(vv) > 5 else vv
-                          for kk, vv in v.items()}
+            compact[k] = {
+                kk: f"[{len(vv)} floats]" if isinstance(vv, list) and len(vv) > 5 else vv
+                for kk, vv in v.items()
+            }
         elif isinstance(v, list) and len(v) > 10:
             compact[k] = f"[{len(v)} items]"
         elif isinstance(v, list) and all(isinstance(row, list) for row in v):
@@ -79,10 +84,12 @@ async def main(model_id: str) -> int:
     )
     from chuk_mcp_lazarus.tools.probe_tools import (
         evaluate_probe,
+        list_probes,
         scan_probe_across_layers,
     )
     from chuk_mcp_lazarus.tools.steering_tools import (
         compute_steering_vector,
+        list_steering_vectors,
         steer_and_generate,
     )
     from chuk_mcp_lazarus.tools.generation_tools import (
@@ -158,8 +165,10 @@ async def main(model_id: str) -> int:
         for layer_key, vec in result["activations"].items():
             mn, mx_val = min(vec), max(vec)
             mean = sum(vec) / len(vec)
-            print(f"  Layer {layer_key:>3}: dim={len(vec)}, "
-                  f"range=[{mn:.3f}, {mx_val:.3f}], mean={mean:.4f}")
+            print(
+                f"  Layer {layer_key:>3}: dim={len(vec)}, "
+                f"range=[{mn:.3f}, {mx_val:.3f}], mean={mean:.4f}"
+            )
 
     # ==================================================================
     # Step 6: Compare multilingual representations at early layer
@@ -203,8 +212,10 @@ async def main(model_id: str) -> int:
     if not result.get("error"):
         print(f"\n  Analyzing last token prediction across {result['num_layers_analyzed']} layers:")
         for pred in result["predictions"]:
-            top3 = ", ".join(f"{t!r}:{p:.3f}" for t, p in
-                            zip(pred["top_tokens"][:3], pred["top_probabilities"][:3]))
+            top3 = ", ".join(
+                f"{t!r}:{p:.3f}"
+                for t, p in zip(pred["top_tokens"][:3], pred["top_probabilities"][:3])
+            )
             print(f"    Layer {pred['layer']:>3}: [{top3}]")
         print(f"\n  Final prediction: {result['summary']['final_prediction']!r}")
         print(f"  First emerged at layer: {result['summary']['emergence_layer']}")
@@ -224,11 +235,13 @@ async def main(model_id: str) -> int:
         print(f"\n  Target: {result['target_token']!r} (id={result['target_token_id']})")
         print(f"  Emergence layer: {result['emergence_layer']}")
         print(f"  Peak: layer {result['peak_layer']} (p={result['peak_probability']:.4f})")
-        print(f"\n  Probability curve:")
+        print("\n  Probability curve:")
         for entry in result["layers"]:
             bar = "█" * int(entry["probability"] * 50)
             marker = " <-- top1" if entry["is_top1"] else ""
-            print(f"    Layer {entry['layer']:>3}: p={entry['probability']:.4f} rank={entry['rank']:>5} {bar}{marker}")
+            print(
+                f"    Layer {entry['layer']:>3}: p={entry['probability']:.4f} rank={entry['rank']:>5} {bar}{marker}"
+            )
 
     # ==================================================================
     # Step 10: Scan probes across layers to find crossover
@@ -261,10 +274,11 @@ async def main(model_id: str) -> int:
     pp("10. scan_probe_across_layers", result)
     if not result.get("error"):
         print(f"\n  Layers scanned: {len(result['layers_scanned'])}")
-        print(f"  Peak layer: {result['peak_layer']} "
-              f"(val_accuracy={result['peak_val_accuracy']:.2%})")
+        print(
+            f"  Peak layer: {result['peak_layer']} (val_accuracy={result['peak_val_accuracy']:.2%})"
+        )
         print(f"  Crossover layer: {result.get('crossover_layer', 'none')}")
-        print(f"\n  Accuracy by layer:")
+        print("\n  Accuracy by layer:")
         for entry in result["accuracy_by_layer"]:
             bar = "█" * int(entry["val_accuracy"] * 30)
             print(f"    Layer {entry['layer']:>3}: {entry['val_accuracy']:.2%} {bar}")
@@ -297,8 +311,23 @@ async def main(model_id: str) -> int:
         for pred in result["predictions"]:
             mark = "+" if pred["correct"] else "x"
             conf = f" ({pred['confidence']:.0%})" if "confidence" in pred else ""
-            print(f"    [{mark}] {pred['prompt'][:40]:<40} "
-                  f"true={pred['true_label']:<8} pred={pred['predicted_label']}{conf}")
+            print(
+                f"    [{mark}] {pred['prompt'][:40]:<40} "
+                f"true={pred['true_label']:<8} pred={pred['predicted_label']}{conf}"
+            )
+
+    # ==================================================================
+    # Step 11b: List trained probes
+    # ==================================================================
+    result = await list_probes()
+    pp("11b. list_probes (registry inspection)", result)
+    if not result.get("error"):
+        print(f"\n  Registered probes: {result['count']}")
+        for p in result["probes"]:
+            print(
+                f"    {p['name']}: layer={p['layer']}, "
+                f"classes={p['classes']}, accuracy={p.get('val_accuracy', 'n/a')}"
+            )
 
     # ==================================================================
     # Step 12: Compute steering vector at the crossover layer
@@ -325,8 +354,22 @@ async def main(model_id: str) -> int:
         print(f"\n  Vector: fr_to_de at layer {crossover}")
         print(f"  Norm: {result['vector_norm']:.2f}")
         print(f"  Separability: {result['separability_score']:.4f}")
-        print(f"  Within-positive (DE) similarity: {result['cosine_similarity_within_positive']:.4f}")
-        print(f"  Within-negative (FR) similarity: {result['cosine_similarity_within_negative']:.4f}")
+        print(
+            f"  Within-positive (DE) similarity: {result['cosine_similarity_within_positive']:.4f}"
+        )
+        print(
+            f"  Within-negative (FR) similarity: {result['cosine_similarity_within_negative']:.4f}"
+        )
+
+    # ==================================================================
+    # Step 12b: List steering vectors
+    # ==================================================================
+    result = await list_steering_vectors()
+    pp("12b. list_steering_vectors (registry inspection)", result)
+    if not result.get("error"):
+        print(f"\n  Registered vectors: {result['count']}")
+        for v in result["vectors"]:
+            print(f"    {v['name']}: layer={v['layer']}, norm={v.get('vector_norm', 'n/a')}")
 
     # ==================================================================
     # Step 13: Steer generation
@@ -395,7 +438,7 @@ async def main(model_id: str) -> int:
         print(f"  Baseline prob: {result['baseline_prob']:.4f}")
         print(f"  Peak layer: {result['peak_layer']} (effect={result['peak_effect']:.4f})")
         print(f"  Critical layers: {result['critical_layers']}")
-        print(f"\n  Causal effect curve (ablation impact):")
+        print("\n  Causal effect curve (ablation impact):")
         for entry in result["layer_effects"]:
             bar_len = int(abs(entry["effect"]) * 40)
             bar = "+" * bar_len if entry["effect"] > 0 else "-" * bar_len
@@ -407,7 +450,7 @@ async def main(model_id: str) -> int:
     # ==================================================================
     elapsed = time.time() - t0
     print(f"\n{'=' * 60}")
-    print(f"  LANGUAGE TRANSITION DEMO COMPLETE")
+    print("  LANGUAGE TRANSITION DEMO COMPLETE")
     print(f"  {len(scan_layers)} layers scanned, crossover at layer {crossover}")
     print(f"  Completed all 15 steps in {elapsed:.1f}s")
     print(f"{'=' * 60}")

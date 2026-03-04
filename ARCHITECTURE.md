@@ -136,17 +136,22 @@ _serialize.py       MLX/NumPy -> JSON-safe conversion.
 _generate.py        Shared text generation helper.
 _compare.py         Shared comparison kernels (weight, activation,
                     attention divergence).
+_extraction.py      Shared activation extraction helpers.
 
 tools/
   model_tools.py        load_model, get_model_info
+  generation_tools.py   generate_text, predict_next_token, tokenize,
+                        logit_lens, track_token, embedding_neighbors
   activation_tools.py   extract_activations, compare_activations
+  attention_tools.py    attention_pattern, attention_heads
   probe_tools.py        train_probe, evaluate_probe, scan_probe_across_layers,
                         list_probes
   steering_tools.py     compute_steering_vector, steer_and_generate,
                         list_steering_vectors
   ablation_tools.py     ablate_layers, patch_activations
-  generation_tools.py   generate_text, predict_next_token, tokenize,
-                        logit_lens
+  causal_tools.py       trace_token, full_causal_trace
+  residual_tools.py     residual_decomposition, layer_clustering,
+                        logit_attribution, head_attribution, top_neurons
   comparison_tools.py   load_comparison_model, compare_weights,
                         compare_representations, compare_attention,
                         compare_generations, unload_comparison_model
@@ -295,10 +300,14 @@ Tools are ordered by complexity. A new user can:
 3. `tokenize` / `generate_text` -- see what the model produces
 4. `extract_activations` -- see real numbers
 5. `compare_activations` -- see structure
-6. `train_probe` / `scan_probe_across_layers` -- find the interesting layer
-7. `logit_lens` -- watch predictions evolve layer by layer
-8. `compute_steering_vector` + `steer_and_generate` -- the payoff
-9. `ablate_layers` / `patch_activations` -- advanced causal analysis
+6. `logit_lens` / `track_token` -- watch predictions evolve layer by layer
+7. `train_probe` / `scan_probe_across_layers` -- find the interesting layer
+8. `attention_pattern` / `attention_heads` -- see information routing
+9. `residual_decomposition` / `logit_attribution` -- what each layer contributes
+10. `head_attribution` / `top_neurons` -- drill into specific components
+11. `compute_steering_vector` + `steer_and_generate` -- the payoff
+12. `ablate_layers` / `patch_activations` / `trace_token` -- causal analysis
+13. `embedding_neighbors` -- vocabulary-level analysis
 
 Each tool's docstring explains what it does, what to call before it,
 and what to call after it. Claude can follow this progression
