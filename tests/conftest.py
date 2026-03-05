@@ -377,6 +377,23 @@ def _install_lazarus_stubs() -> None:
                     np.random.randn(1, 5, 64).astype(np.float32)
                 )
 
+        def _get_layers(self) -> list:
+            if self.model is not None:
+                inner = getattr(self.model, "model", self.model)
+                layers = getattr(inner, "layers", None)
+                if layers is not None:
+                    return layers
+            return [MagicMock() for _ in range(4)]
+
+        def _get_embed_tokens(self) -> Any:
+            if self.model is not None:
+                inner = getattr(self.model, "model", self.model)
+                return getattr(inner, "embed_tokens", MagicMock())
+            return MagicMock()
+
+        def _get_embedding_scale(self) -> Any:
+            return None
+
         def _get_final_norm(self) -> Any:
             return lambda x: x
 
@@ -637,6 +654,7 @@ _install_virtual_expert_stub()
 
 from chuk_mcp_lazarus.model_state import ModelMetadata, ModelState  # noqa: E402
 from chuk_mcp_lazarus.comparison_state import ComparisonState  # noqa: E402
+from chuk_mcp_lazarus.experiment_store import ExperimentStore  # noqa: E402
 from chuk_mcp_lazarus.probe_store import ProbeRegistry  # noqa: E402
 from chuk_mcp_lazarus.steering_store import SteeringVectorRegistry  # noqa: E402
 
@@ -781,5 +799,6 @@ def reset_singletons() -> Any:
     yield
     ModelState._instance = None
     ComparisonState._instance = None
+    ExperimentStore.reset()
     ProbeRegistry._instance = None
     SteeringVectorRegistry._instance = None

@@ -939,6 +939,199 @@ def _norm_project(final_norm: Any, lm_head: Any, vec: mx.array) -> mx.array:
     return _project_to_logits(lm_head, normed)
 
 
+def _logit_attribution_impl(
+    model: Any,
+    config: Any,
+    tokenizer: Any,
+    prompt: str,
+    layers: list[int],
+    position: int,
+    target_token: str | None,
+    normalized: bool,
+    num_layers: int,
+) -> dict:
+    """Sync implementation of logit_attribution.
+
+    Runs a decomposition forward pass and computes per-layer attention/FFN
+    contributions to the target token's logit.  Called via asyncio.to_thread
+    from the async tool wrapper.  Also reused by attribution_sweep.
+
+    Raises ValueError on invalid target_token or missing lm_head.
+    """
+    from chuk_lazarus.introspection.hooks import ModelHooks
+
+    input_ids = _tokenize(tokenizer, prompt)
+    tok_text = _token_text(tokenizer, input_ids, position)
+
+    last_layer = num_layers - 1
+    forward_layers = sorted(set(layers) | {last_layer})
+
+    captured = _run_decomposition_forward(model, config, input_ids, forward_layers)
+
+    lm_head = _get_lm_projection(model)
+    helper = ModelHooks(model, model_config=config)
+    final_norm = helper._get_final_norm()
+
+    if lm_head is None:
+        raise ValueError("Could not access the language model head for this model.")
+
+    # Materialize lazy MLX arrays
+    to_eval = [captured["embeddings"]]
+    to_eval += list(captured["hidden_states"].values())
+    to_eval += list(captured["prev_hidden"].values())
+    to_eval += [v for v in captured["attn_outputs"].values() if v is not None]
+    to_eval += [v for v in captured["ffn_outputs"].values() if v is not None]
+    mx.eval(*to_eval)
+
+    # Compute actual model prediction (with final norm)
+    final_hidden = captured["hidden_states"][last_layer]
+    final_vec = _extract_position(final_hidden, position)
+
+    full_logits = _norm_project(final_norm, lm_head, final_vec)
+    mx.eval(full_logits)
+
+    probs = mx.softmax(full_logits, axis=-1)
+    mx.eval(probs)
+
+    # Resolve target token (raises ValueError on bad token)
+    target_id, target_text = _resolve_target_token(tokenizer, full_logits, target_token)
+
+    model_logit = float(full_logits[target_id].item())
+    model_prob = float(probs[target_id].item())
+
+    # Embedding contribution
+    embed_vec = _extract_position(captured["embeddings"], position)
+
+    if normalized:
+        embed_logits = _norm_project(final_norm, lm_head, embed_vec)
+    else:
+        embed_logits = _project_to_logits(lm_head, embed_vec)
+    mx.eval(embed_logits)
+    embedding_logit = float(embed_logits[target_id].item())
+
+    # Per-layer attribution
+    cumulative = embedding_logit
+    attributions: list[LayerAttribution] = []
+
+    for layer_idx in sorted(layers):
+        attn_out = captured["attn_outputs"].get(layer_idx)
+        ffn_out = captured["ffn_outputs"].get(layer_idx)
+        prev_h = captured["prev_hidden"].get(layer_idx)
+        post_h = captured["hidden_states"].get(layer_idx)
+
+        if normalized and prev_h is not None and attn_out is not None and ffn_out is not None:
+            # ── Normalized mode: logit deltas through norm ──
+            prev_vec = _extract_position(prev_h, position)
+            attn_vec = _extract_position(attn_out, position)
+            post_vec = _extract_position(post_h, position)
+            post_attn_vec = prev_vec + attn_vec  # residual after attention
+
+            logits_pre = _norm_project(final_norm, lm_head, prev_vec)
+            logits_post_attn = _norm_project(final_norm, lm_head, post_attn_vec)
+            logits_post = _norm_project(final_norm, lm_head, post_vec)
+            mx.eval(logits_pre, logits_post_attn, logits_post)
+
+            attn_contribution = float(logits_post_attn[target_id].item()) - float(
+                logits_pre[target_id].item()
+            )
+            ffn_contribution = float(logits_post[target_id].item()) - float(
+                logits_post_attn[target_id].item()
+            )
+
+            # Top tokens: logit lens prediction at each checkpoint
+            attn_top_id = int(mx.argmax(logits_post_attn).item())
+            ffn_top_id = int(mx.argmax(logits_post).item())
+            attn_top_token = tokenizer.decode([attn_top_id])
+            ffn_top_token = tokenizer.decode([ffn_top_id])
+
+            # Cumulative = actual logit lens at this layer
+            cumul = float(logits_post[target_id].item())
+
+        elif attn_out is not None and ffn_out is not None:
+            # ── Raw DLA mode ──
+            attn_vec = _extract_position(attn_out, position)
+            attn_logits = _project_to_logits(lm_head, attn_vec)
+            mx.eval(attn_logits)
+            attn_contribution = float(attn_logits[target_id].item())
+            attn_top_id = int(mx.argmax(attn_logits).item())
+            attn_top_token = tokenizer.decode([attn_top_id])
+
+            ffn_vec = _extract_position(ffn_out, position)
+            ffn_logits = _project_to_logits(lm_head, ffn_vec)
+            mx.eval(ffn_logits)
+            ffn_contribution = float(ffn_logits[target_id].item())
+            ffn_top_id = int(mx.argmax(ffn_logits).item())
+            ffn_top_token = tokenizer.decode([ffn_top_id])
+
+            cumulative += attn_contribution + ffn_contribution
+            cumul = cumulative
+
+        else:
+            # Non-decomposable block
+            attn_contribution = 0.0
+            ffn_contribution = 0.0
+            attn_top_token = "?"
+            ffn_top_token = "?"
+            cumul = cumulative
+
+        total = attn_contribution + ffn_contribution
+
+        attributions.append(
+            LayerAttribution(
+                layer=layer_idx,
+                attention_logit=round(attn_contribution, 6),
+                ffn_logit=round(ffn_contribution, 6),
+                total_logit=round(total, 6),
+                cumulative_logit=round(cumul, 6),
+                attention_top_token=attn_top_token,
+                ffn_top_token=ffn_top_token,
+            )
+        )
+
+    # attribution_sum: last cumulative value
+    attribution_sum = (
+        round(attributions[-1].cumulative_logit, 6) if attributions else round(embedding_logit, 6)
+    )
+
+    # Summary
+    top_pos: LayerAttribution | None = None
+    top_neg: LayerAttribution | None = None
+    total_attn = 0.0
+    total_ffn = 0.0
+    if attributions:
+        top_pos = max(attributions, key=lambda a: a.total_logit)
+        top_neg = min(attributions, key=lambda a: a.total_logit)
+        total_attn = sum(a.attention_logit for a in attributions)
+        total_ffn = sum(a.ffn_logit for a in attributions)
+
+    summary: dict[str, Any] = {
+        "mode": "normalized" if normalized else "raw_dla",
+        "top_positive_layer": top_pos.layer if top_pos else -1,
+        "top_positive_logit": top_pos.total_logit if top_pos else 0.0,
+        "top_negative_layer": top_neg.layer if top_neg else -1,
+        "top_negative_logit": top_neg.total_logit if top_neg else 0.0,
+        "total_attention_logit": round(total_attn, 6),
+        "total_ffn_logit": round(total_ffn, 6),
+        "dominant_component": "attention" if total_attn > total_ffn else "ffn",
+        "embedding_logit": round(embedding_logit, 6),
+    }
+
+    result = LogitAttributionResult(
+        prompt=prompt,
+        token_position=position,
+        token_text=tok_text,
+        target_token=target_text,
+        target_token_id=target_id,
+        model_logit=round(model_logit, 6),
+        model_probability=round(model_prob, 6),
+        embedding_logit=round(embedding_logit, 6),
+        layers=attributions,
+        attribution_sum=attribution_sum,
+        summary=summary,
+    )
+    return result.model_dump()
+
+
 @mcp.tool(read_only_hint=True, idempotent_hint=True)
 async def logit_attribution(
     prompt: str,
@@ -1015,208 +1208,21 @@ async def logit_attribution(
         )
 
     try:
-        from chuk_lazarus.introspection.hooks import ModelHooks
-
-        input_ids = _tokenize(state.tokenizer, prompt)
-        tok_text = _token_text(state.tokenizer, input_ids, position)
-
-        # Run decomposition forward pass (captures attn/ffn sub-outputs).
-        # Always include the final layer so full_logits reflect the actual
-        # model prediction, even when the user only requests early layers.
-        num_layers = state.metadata.num_layers
-        last_layer = num_layers - 1
-        forward_layers = sorted(set(layers) | {last_layer})
-
-        captured = _run_decomposition_forward(
+        result = await asyncio.to_thread(
+            _logit_attribution_impl,
             state.model,
             state.config,
-            input_ids,
-            forward_layers,
+            state.tokenizer,
+            prompt,
+            layers,
+            position,
+            target_token,
+            normalized,
+            num_layers,
         )
-
-        # Get lm_head and final_norm
-        # Use _get_lm_projection to handle tied-embedding models correctly
-        # (e.g. Gemma 3 uses embed_tokens.as_linear, not model.lm_head)
-        lm_head = _get_lm_projection(state.model)
-        helper = ModelHooks(state.model, model_config=state.config)
-        final_norm = helper._get_final_norm()
-
-        if lm_head is None:
-            return make_error(
-                ToolError.EXTRACTION_FAILED,
-                "Could not access the language model head for this model.",
-                "logit_attribution",
-            )
-
-        # Materialize lazy MLX arrays
-        to_eval = [captured["embeddings"]]
-        to_eval += list(captured["hidden_states"].values())
-        to_eval += list(captured["prev_hidden"].values())
-        to_eval += [v for v in captured["attn_outputs"].values() if v is not None]
-        to_eval += [v for v in captured["ffn_outputs"].values() if v is not None]
-        mx.eval(*to_eval)
-
-        # Compute actual model prediction (with final norm)
-        final_hidden = captured["hidden_states"][last_layer]
-        final_vec = _extract_position(final_hidden, position)
-
-        full_logits = _norm_project(final_norm, lm_head, final_vec)
-        mx.eval(full_logits)
-
-        probs = mx.softmax(full_logits, axis=-1)
-        mx.eval(probs)
-
-        # Resolve target token
-        try:
-            target_id, target_text = _resolve_target_token(
-                state.tokenizer,
-                full_logits,
-                target_token,
-            )
-        except ValueError as exc:
-            return make_error(
-                ToolError.INVALID_INPUT,
-                str(exc),
-                "logit_attribution",
-            )
-
-        model_logit = float(full_logits[target_id].item())
-        model_prob = float(probs[target_id].item())
-
-        # Embedding contribution
-        embed_vec = _extract_position(captured["embeddings"], position)
-
-        if normalized:
-            embed_logits = _norm_project(final_norm, lm_head, embed_vec)
-        else:
-            embed_logits = _project_to_logits(lm_head, embed_vec)
-        mx.eval(embed_logits)
-        embedding_logit = float(embed_logits[target_id].item())
-
-        # Per-layer attribution
-        cumulative = embedding_logit
-        attributions: list[LayerAttribution] = []
-
-        for layer_idx in sorted(layers):
-            attn_out = captured["attn_outputs"].get(layer_idx)
-            ffn_out = captured["ffn_outputs"].get(layer_idx)
-            prev_h = captured["prev_hidden"].get(layer_idx)
-            post_h = captured["hidden_states"].get(layer_idx)
-
-            if normalized and prev_h is not None and attn_out is not None and ffn_out is not None:
-                # ── Normalized mode: logit deltas through norm ──
-                prev_vec = _extract_position(prev_h, position)
-                attn_vec = _extract_position(attn_out, position)
-                post_vec = _extract_position(post_h, position)
-                post_attn_vec = prev_vec + attn_vec  # residual after attention
-
-                logits_pre = _norm_project(final_norm, lm_head, prev_vec)
-                logits_post_attn = _norm_project(final_norm, lm_head, post_attn_vec)
-                logits_post = _norm_project(final_norm, lm_head, post_vec)
-                mx.eval(logits_pre, logits_post_attn, logits_post)
-
-                attn_contribution = float(logits_post_attn[target_id].item()) - float(
-                    logits_pre[target_id].item()
-                )
-                ffn_contribution = float(logits_post[target_id].item()) - float(
-                    logits_post_attn[target_id].item()
-                )
-
-                # Top tokens: logit lens prediction at each checkpoint
-                attn_top_id = int(mx.argmax(logits_post_attn).item())
-                ffn_top_id = int(mx.argmax(logits_post).item())
-                attn_top_token = state.tokenizer.decode([attn_top_id])
-                ffn_top_token = state.tokenizer.decode([ffn_top_id])
-
-                # Cumulative = actual logit lens at this layer
-                cumul = float(logits_post[target_id].item())
-
-            elif attn_out is not None and ffn_out is not None:
-                # ── Raw DLA mode ──
-                attn_vec = _extract_position(attn_out, position)
-                attn_logits = _project_to_logits(lm_head, attn_vec)
-                mx.eval(attn_logits)
-                attn_contribution = float(attn_logits[target_id].item())
-                attn_top_id = int(mx.argmax(attn_logits).item())
-                attn_top_token = state.tokenizer.decode([attn_top_id])
-
-                ffn_vec = _extract_position(ffn_out, position)
-                ffn_logits = _project_to_logits(lm_head, ffn_vec)
-                mx.eval(ffn_logits)
-                ffn_contribution = float(ffn_logits[target_id].item())
-                ffn_top_id = int(mx.argmax(ffn_logits).item())
-                ffn_top_token = state.tokenizer.decode([ffn_top_id])
-
-                cumulative += attn_contribution + ffn_contribution
-                cumul = cumulative
-
-            else:
-                # Non-decomposable block
-                attn_contribution = 0.0
-                ffn_contribution = 0.0
-                attn_top_token = "?"
-                ffn_top_token = "?"
-                cumul = cumulative
-
-            total = attn_contribution + ffn_contribution
-
-            attributions.append(
-                LayerAttribution(
-                    layer=layer_idx,
-                    attention_logit=round(attn_contribution, 6),
-                    ffn_logit=round(ffn_contribution, 6),
-                    total_logit=round(total, 6),
-                    cumulative_logit=round(cumul, 6),
-                    attention_top_token=attn_top_token,
-                    ffn_top_token=ffn_top_token,
-                )
-            )
-
-        # attribution_sum: last cumulative value
-        attribution_sum = (
-            round(attributions[-1].cumulative_logit, 6)
-            if attributions
-            else round(embedding_logit, 6)
-        )
-
-        # Summary
-        top_pos: LayerAttribution | None = None
-        top_neg: LayerAttribution | None = None
-        total_attn = 0.0
-        total_ffn = 0.0
-        if attributions:
-            top_pos = max(attributions, key=lambda a: a.total_logit)
-            top_neg = min(attributions, key=lambda a: a.total_logit)
-            total_attn = sum(a.attention_logit for a in attributions)
-            total_ffn = sum(a.ffn_logit for a in attributions)
-
-        summary: dict[str, Any] = {
-            "mode": "normalized" if normalized else "raw_dla",
-            "top_positive_layer": top_pos.layer if top_pos else -1,
-            "top_positive_logit": top_pos.total_logit if top_pos else 0.0,
-            "top_negative_layer": top_neg.layer if top_neg else -1,
-            "top_negative_logit": top_neg.total_logit if top_neg else 0.0,
-            "total_attention_logit": round(total_attn, 6),
-            "total_ffn_logit": round(total_ffn, 6),
-            "dominant_component": "attention" if total_attn > total_ffn else "ffn",
-            "embedding_logit": round(embedding_logit, 6),
-        }
-
-        result = LogitAttributionResult(
-            prompt=prompt,
-            token_position=position,
-            token_text=tok_text,
-            target_token=target_text,
-            target_token_id=target_id,
-            model_logit=round(model_logit, 6),
-            model_probability=round(model_prob, 6),
-            embedding_logit=round(embedding_logit, 6),
-            layers=attributions,
-            attribution_sum=attribution_sum,
-            summary=summary,
-        )
-        return result.model_dump()
-
+        return result
+    except ValueError as exc:
+        return make_error(ToolError.INVALID_INPUT, str(exc), "logit_attribution")
     except Exception as e:
         logger.exception("logit_attribution failed")
         return make_error(ToolError.EXTRACTION_FAILED, str(e), "logit_attribution")

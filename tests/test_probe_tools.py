@@ -8,11 +8,13 @@ import pytest
 from chuk_mcp_lazarus.tools.probe_tools import (
     _coefficients_norm,
     _evaluate_probe_impl,
+    _probe_at_inference_impl,
     _scan_probe_impl,
     _train_probe_impl,
     _train_sklearn_probe,
     evaluate_probe,
     list_probes,
+    probe_at_inference,
     scan_probe_across_layers,
     train_probe,
 )
@@ -1439,3 +1441,350 @@ class TestScanProbeImpl:
         )
 
         assert result["probe_name_prefix"] == "my_custom_prefix"
+
+
+# ---------------------------------------------------------------------------
+# TestProbeAtInference (async tool)
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_probe():
+    """Create a fake sklearn classifier and ProbeMetadata."""
+    clf = MagicMock()
+    # predict_proba returns 2 classes: class_0=0.3, class_1=0.7
+    clf.predict_proba.return_value = np.array([[0.3, 0.7]])
+
+    meta = ProbeMetadata(
+        name="test_probe",
+        layer=2,
+        probe_type=ProbeType.LINEAR,
+        classes=["class_0", "class_1"],
+        num_examples=100,
+        train_accuracy=0.9,
+        val_accuracy=0.85,
+        trained_at="2025-01-01T00:00:00",
+    )
+    return clf, meta
+
+
+class TestProbeAtInference:
+    @pytest.mark.asyncio
+    async def test_model_not_loaded(self, unloaded_model_state: MagicMock) -> None:
+        result = await probe_at_inference(prompt="hello", probe_name="test")
+        assert result["error"] is True
+        assert result["error_type"] == "ModelNotLoaded"
+
+    @pytest.mark.asyncio
+    async def test_probe_not_found(self, loaded_model_state: MagicMock) -> None:
+        result = await probe_at_inference(prompt="hello", probe_name="nonexistent")
+        assert result["error"] is True
+        assert result["error_type"] == "ProbeNotFound"
+
+    @pytest.mark.asyncio
+    async def test_invalid_max_tokens(self, loaded_model_state: MagicMock) -> None:
+        # Register a probe so we get past the probe check
+        clf, meta = _make_fake_probe()
+        ProbeRegistry.get().store("test_probe", clf, meta)
+
+        result = await probe_at_inference(prompt="hello", probe_name="test_probe", max_tokens=0)
+        assert result["error"] is True
+        assert result["error_type"] == "InvalidInput"
+
+    @pytest.mark.asyncio
+    async def test_max_tokens_too_high(self, loaded_model_state: MagicMock) -> None:
+        clf, meta = _make_fake_probe()
+        ProbeRegistry.get().store("test_probe", clf, meta)
+
+        result = await probe_at_inference(prompt="hello", probe_name="test_probe", max_tokens=501)
+        assert result["error"] is True
+        assert result["error_type"] == "InvalidInput"
+
+    @pytest.mark.asyncio
+    async def test_success(self, loaded_model_state: MagicMock) -> None:
+        mock_result = {
+            "prompt": "hello",
+            "probe_name": "test_probe",
+            "probe_layer": 2,
+            "generated_text": "world",
+            "tokens_generated": 1,
+            "per_token": [],
+            "overall_majority_class": "class_1",
+            "overall_mean_confidence": 0.7,
+            "class_distribution": {"class_1": 1},
+        }
+        clf, meta = _make_fake_probe()
+        ProbeRegistry.get().store("test_probe", clf, meta)
+
+        with patch(
+            "chuk_mcp_lazarus.tools.probe_tools._probe_at_inference_impl",
+            return_value=mock_result,
+        ):
+            result = await probe_at_inference(prompt="hello", probe_name="test_probe")
+        assert "error" not in result
+        assert result["probe_name"] == "test_probe"
+
+    @pytest.mark.asyncio
+    async def test_exception_returns_error(self, loaded_model_state: MagicMock) -> None:
+        clf, meta = _make_fake_probe()
+        ProbeRegistry.get().store("test_probe", clf, meta)
+
+        with patch(
+            "chuk_mcp_lazarus.tools.probe_tools._probe_at_inference_impl",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = await probe_at_inference(prompt="hello", probe_name="test_probe")
+        assert result["error"] is True
+        assert result["error_type"] == "GenerationFailed"
+
+
+# ---------------------------------------------------------------------------
+# TestProbeAtInferenceImpl (sync helper)
+# ---------------------------------------------------------------------------
+
+
+class TestProbeAtInferenceImpl:
+    """Test _probe_at_inference_impl directly.
+
+    The conftest ModelHooks stub's forward() returns None (no logits)
+    and only populates hidden_states. We patch the hooks module so
+    forward() returns logits AND populates hidden_states.
+    """
+
+    @staticmethod
+    def _make_hooks_patch(gen_ids: list[int] | None = None):
+        """Return a context manager that patches ModelHooks.forward to return logits."""
+        import mlx.core as mx
+
+        gen_ids = gen_ids or [10, 11, 0]
+        call_count = [0]
+
+        class PatchedModelHooks:
+            def __init__(self, model=None, model_config=None):
+                self.model = model
+                self.model_config = model_config
+                from chuk_lazarus.introspection.hooks import CapturedState
+
+                self.state = CapturedState()
+                self._config = None
+
+            def configure(self, config):
+                self._config = config
+
+            def forward(self, input_ids):
+                # Populate hidden states (like the stub)
+                for layer in getattr(self._config, "layers", []):
+                    self.state.hidden_states[layer] = mx.array(
+                        np.random.randn(1, 5, 64).astype(np.float32)
+                    )
+                # Also return logits
+                seq_len = input_ids.shape[-1] if hasattr(input_ids, "shape") else 5
+                logits = np.zeros((1, seq_len, 100), dtype=np.float32)
+                step = call_count[0]
+                if step < len(gen_ids):
+                    logits[0, -1, gen_ids[step]] = 10.0
+                call_count[0] += 1
+                return mx.array(logits)
+
+            def _get_final_norm(self):
+                return lambda x: x
+
+        return patch(
+            "chuk_lazarus.introspection.hooks.ModelHooks",
+            PatchedModelHooks,
+        )
+
+    def _make_tokenizer(self):
+        tokenizer = MagicMock()
+        tokenizer.encode.return_value = [1, 2, 3]
+        tokenizer.eos_token_id = 0
+        tokenizer.decode.side_effect = lambda ids, **kw: " ".join(f"tok{i}" for i in ids)
+        return tokenizer
+
+    def test_output_structure(self) -> None:
+        tokenizer = self._make_tokenizer()
+        clf, meta = _make_fake_probe()
+
+        with self._make_hooks_patch():
+            result = _probe_at_inference_impl(
+                MagicMock(),
+                MagicMock(),
+                tokenizer,
+                (clf, meta),
+                prompt="hello",
+                max_tokens=3,
+                temperature=0.0,
+                token_position=-1,
+            )
+
+        assert isinstance(result, dict)
+        assert result["prompt"] == "hello"
+        assert result["probe_name"] == "test_probe"
+        assert result["probe_layer"] == 2
+        assert "generated_text" in result
+        assert "tokens_generated" in result
+        assert "per_token" in result
+        assert "overall_majority_class" in result
+        assert "overall_mean_confidence" in result
+        assert "class_distribution" in result
+
+    def test_generated_text(self) -> None:
+        tokenizer = self._make_tokenizer()
+        clf, meta = _make_fake_probe()
+
+        with self._make_hooks_patch(gen_ids=[10, 11, 0]):
+            result = _probe_at_inference_impl(
+                MagicMock(),
+                MagicMock(),
+                tokenizer,
+                (clf, meta),
+                prompt="hello",
+                max_tokens=5,
+                temperature=0.0,
+                token_position=-1,
+            )
+
+        # Should generate tokens then hit EOS (token 0)
+        assert result["tokens_generated"] >= 1
+
+    def test_per_token_fields(self) -> None:
+        tokenizer = self._make_tokenizer()
+        clf, meta = _make_fake_probe()
+
+        with self._make_hooks_patch():
+            result = _probe_at_inference_impl(
+                MagicMock(),
+                MagicMock(),
+                tokenizer,
+                (clf, meta),
+                prompt="hello",
+                max_tokens=2,
+                temperature=0.0,
+                token_position=-1,
+            )
+
+        for entry in result["per_token"]:
+            assert "step" in entry
+            assert "token" in entry
+            assert "token_id" in entry
+            assert "probe_prediction" in entry
+            assert "probe_confidence" in entry
+            assert "probe_probabilities" in entry
+
+    def test_prediction_classes(self) -> None:
+        tokenizer = self._make_tokenizer()
+        clf, meta = _make_fake_probe()
+
+        with self._make_hooks_patch():
+            result = _probe_at_inference_impl(
+                MagicMock(),
+                MagicMock(),
+                tokenizer,
+                (clf, meta),
+                prompt="hello",
+                max_tokens=2,
+                temperature=0.0,
+                token_position=-1,
+            )
+
+        for entry in result["per_token"]:
+            assert entry["probe_prediction"] in ["class_0", "class_1"]
+
+    def test_majority_class(self) -> None:
+        tokenizer = self._make_tokenizer()
+        clf, meta = _make_fake_probe()
+        # Always predicts class_1 (0.7 > 0.3)
+
+        with self._make_hooks_patch():
+            result = _probe_at_inference_impl(
+                MagicMock(),
+                MagicMock(),
+                tokenizer,
+                (clf, meta),
+                prompt="hello",
+                max_tokens=2,
+                temperature=0.0,
+                token_position=-1,
+            )
+
+        assert result["overall_majority_class"] == "class_1"
+
+    def test_mean_confidence(self) -> None:
+        tokenizer = self._make_tokenizer()
+        clf, meta = _make_fake_probe()
+
+        with self._make_hooks_patch():
+            result = _probe_at_inference_impl(
+                MagicMock(),
+                MagicMock(),
+                tokenizer,
+                (clf, meta),
+                prompt="hello",
+                max_tokens=2,
+                temperature=0.0,
+                token_position=-1,
+            )
+
+        assert 0.0 <= result["overall_mean_confidence"] <= 1.0
+
+    def test_class_distribution(self) -> None:
+        tokenizer = self._make_tokenizer()
+        clf, meta = _make_fake_probe()
+
+        with self._make_hooks_patch():
+            result = _probe_at_inference_impl(
+                MagicMock(),
+                MagicMock(),
+                tokenizer,
+                (clf, meta),
+                prompt="hello",
+                max_tokens=2,
+                temperature=0.0,
+                token_position=-1,
+            )
+
+        dist = result["class_distribution"]
+        assert isinstance(dist, dict)
+        total = sum(dist.values())
+        assert total == result["tokens_generated"]
+
+    def test_max_tokens_stop(self) -> None:
+        """Generation should stop at max_tokens even without EOS."""
+        tokenizer = self._make_tokenizer()
+        tokenizer.eos_token_id = 999  # Never generated
+        clf, meta = _make_fake_probe()
+
+        # gen_ids never contains 999 (EOS)
+        with self._make_hooks_patch(gen_ids=[10, 11, 12, 13, 14]):
+            result = _probe_at_inference_impl(
+                MagicMock(),
+                MagicMock(),
+                tokenizer,
+                (clf, meta),
+                prompt="hello",
+                max_tokens=3,
+                temperature=0.0,
+                token_position=-1,
+            )
+
+        assert result["tokens_generated"] == 3
+
+    def test_eos_stops_generation(self) -> None:
+        """Generation should stop when EOS is generated."""
+        tokenizer = self._make_tokenizer()
+        clf, meta = _make_fake_probe()
+
+        # 3rd token is 0 = EOS
+        with self._make_hooks_patch(gen_ids=[10, 11, 0]):
+            result = _probe_at_inference_impl(
+                MagicMock(),
+                MagicMock(),
+                tokenizer,
+                (clf, meta),
+                prompt="hello",
+                max_tokens=100,  # High limit
+                temperature=0.0,
+                token_position=-1,
+            )
+
+        # Should stop at EOS (3rd generated token is token 0 = EOS)
+        assert result["tokens_generated"] <= 3

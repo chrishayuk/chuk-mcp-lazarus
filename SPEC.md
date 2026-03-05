@@ -38,32 +38,40 @@ chuk-mcp-lazarus/
 │       ├── probe_store.py           # Singleton: probe registry
 │       ├── steering_store.py        # Singleton: steering vector registry
 │       ├── resources.py             # MCP resources (model://info, probes, vectors)
-│       ├── errors.py                # ToolError enum + error envelope helper
+│       ├── errors.py                # ToolError enum + error envelope helper (16 error types)
 │       ├── _bootstrap.py            # Optional dependency stubs
 │       ├── comparison_state.py       # Singleton: comparison model (2nd model)
+│       ├── experiment_store.py      # Singleton: experiment persistence
 │       ├── _serialize.py            # mx.array / np.ndarray -> JSON-safe
 │       ├── _generate.py             # Shared text generation helper
 │       ├── _compare.py              # Shared comparison kernels
 │       ├── _extraction.py           # Shared activation extraction
 │       └── tools/
 │           ├── __init__.py
-│           ├── model_tools.py       # load_model, get_model_info
-│           ├── generation_tools.py  # generate_text, predict_next_token,
-│           │                        #   tokenize, logit_lens, track_token,
-│           │                        #   embedding_neighbors
-│           ├── activation_tools.py  # extract_activations, compare_activations
-│           ├── attention_tools.py   # attention_pattern, attention_heads
-│           ├── probe_tools.py       # train_probe, evaluate_probe,
-│           │                        #   scan_probe_across_layers, list_probes
-│           ├── steering_tools.py    # compute_steering_vector,
-│           │                        #   steer_and_generate, list_steering_vectors
-│           ├── ablation_tools.py    # ablate_layers, patch_activations
-│           ├── causal_tools.py      # trace_token, full_causal_trace
-│           ├── residual_tools.py    # residual_decomposition, layer_clustering,
-│           │                        #   logit_attribution, head_attribution, top_neurons
-│           └── comparison_tools.py  # load_comparison_model, compare_weights,
-│                                    #   compare_representations, compare_attention,
-│                                    #   compare_generations, unload_comparison_model
+│           ├── model_tools.py         # load_model, get_model_info
+│           ├── generation_tools.py    # generate_text, predict_next_token,
+│           │                          #   tokenize, logit_lens, track_token,
+│           │                          #   track_race, embedding_neighbors
+│           ├── activation_tools.py    # extract_activations, compare_activations
+│           ├── attention_tools.py     # attention_pattern, attention_heads
+│           ├── probe_tools.py         # train_probe, evaluate_probe,
+│           │                          #   scan_probe_across_layers,
+│           │                          #   probe_at_inference, list_probes
+│           ├── steering_tools.py      # compute_steering_vector,
+│           │                          #   steer_and_generate, list_steering_vectors
+│           ├── ablation_tools.py      # ablate_layers, patch_activations
+│           ├── causal_tools.py        # trace_token, full_causal_trace
+│           ├── residual_tools.py      # residual_decomposition, layer_clustering,
+│           │                          #   logit_attribution, head_attribution, top_neurons
+│           ├── attribution_tools.py   # attribution_sweep
+│           ├── intervention_tools.py  # component_intervention
+│           ├── neuron_tools.py        # discover_neurons, analyze_neuron, neuron_trace
+│           ├── direction_tools.py     # extract_direction
+│           ├── experiment_tools.py    # create_experiment, add_experiment_result,
+│           │                          #   get_experiment, list_experiments
+│           └── comparison_tools.py    # load_comparison_model, compare_weights,
+│                                      #   compare_representations, compare_attention,
+│                                      #   compare_generations, unload_comparison_model
 ├── tests/
 ├── pyproject.toml
 ├── ARCHITECTURE.md
@@ -79,7 +87,7 @@ chuk-mcp-lazarus/
 ```toml
 [project]
 name = "chuk-mcp-lazarus"
-version = "0.9.0"
+version = "0.14.0"
 requires-python = ">=3.11"
 
 dependencies = [
@@ -116,7 +124,7 @@ mcp = ChukMCPServer(
 from .server import mcp
 from .tools import *          # noqa: F403 -- triggers @mcp.tool() registration
 
-__version__ = "0.9.0"
+__version__ = "0.14.0"
 __all__ = ["mcp"]
 ```
 
@@ -996,6 +1004,314 @@ async def unload_comparison_model() -> dict:
 
 ---
 
+### Group 11 -- Attribution
+
+#### `attribution_sweep`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def attribution_sweep(
+    prompts: list[str],
+    layers: list[int] | None = None,
+    position: int = -1,
+    target_token: str | None = None,
+    normalized: bool = True,
+    labels: list[str] | None = None,
+) -> dict:
+    """
+    Batch logit attribution across multiple prompts. Returns per-layer
+    summary statistics, per-prompt summary rows, and dominant
+    component analysis.
+
+    Args:
+        prompts:      2-50 input texts.
+        layers:       Layer indices. None = all layers.
+        position:     Token position (default: last).
+        target_token: Token to attribute. None = top predicted per prompt.
+        normalized:   Use calibrated norm→lm_head projection (default: True).
+        labels:       Optional labels for each prompt (must match length).
+
+    Returns:
+        num_prompts, num_layers, dominant_layer, dominant_component,
+        layer_summary: [{layer, mean_attention_logit, mean_ffn_logit, ...}],
+        prompt_summary: [{prompt, label, embedding_logit, net_attention,
+                         net_ffn, final_logit, top_prediction, probability,
+                         dominant_component, top_positive_layer, top_negative_layer}],
+        per_prompt: [full per-prompt attribution results]
+    """
+```
+
+---
+
+### Group 12 -- Intervention
+
+#### `component_intervention`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def component_intervention(
+    prompt: str,
+    layer: int,
+    component: str,
+    intervention: str = "zero",
+    scale_factor: float = 0.0,
+    head: int | None = None,
+    top_k: int = 10,
+    token_position: int = -1,
+) -> dict:
+    """
+    Surgical causal intervention: zero/scale a specific component
+    (attention, FFN, or individual head) at a layer and compare
+    predictions with the clean forward pass.
+
+    Args:
+        prompt:       Input text.
+        layer:        Layer to intervene at.
+        component:    "attention", "ffn", or "head".
+        intervention: "zero" or "scale".
+        scale_factor: Scale factor (0.0 for zero, any float for scale).
+        head:         Head index (required when component="head").
+        top_k:        Number of top predictions to compare (1-50).
+        token_position: Token position (-1 = last).
+
+    Returns:
+        prompt, layer, component, intervention, scale_factor, head,
+        token_position, token_text,
+        original_top_k, intervened_top_k,
+        kl_divergence, target_delta, original_top1, intervened_top1,
+        top1_changed, summary
+    """
+```
+
+---
+
+### Group 13 -- Neuron Analysis
+
+#### `discover_neurons`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def discover_neurons(
+    layer: int,
+    positive_prompts: list[str],
+    negative_prompts: list[str],
+    top_k: int = 10,
+    token_position: int = -1,
+) -> dict:
+    """
+    Auto-find neurons that discriminate between two prompt groups
+    using Cohen's d effect size.
+
+    Returns:
+        layer, top_k, num_positive, num_negative,
+        top_neurons: [{neuron_idx, cohens_d, positive_mean, negative_mean}]
+    """
+```
+
+#### `analyze_neuron`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def analyze_neuron(
+    layer: int,
+    neuron_indices: list[int],
+    prompts: list[str],
+    token_position: int = -1,
+    detailed: bool = False,
+) -> dict:
+    """
+    Profile specific neurons: activation statistics across prompts.
+
+    Returns:
+        layer, num_prompts,
+        neurons: [{neuron_idx, min_val, max_val, mean_val, std_val}],
+        per_prompt_activations (when detailed=True)
+    """
+```
+
+#### `neuron_trace`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def neuron_trace(
+    prompt: str,
+    layer: int,
+    neuron_index: int,
+    target_layers: list[int] | None = None,
+    token_position: int = -1,
+    top_k_heads: int = 5,
+) -> dict:
+    """
+    Trace a neuron's output direction through downstream layers.
+    Computes cosine similarity between the neuron's output vector
+    and the residual stream, attention output, and FFN output at
+    each target layer.
+
+    Args:
+        prompt:        Input text.
+        layer:         Source layer containing the neuron.
+        neuron_index:  Neuron index in the MLP intermediate space.
+        target_layers: Layers to trace through. None = next 9 layers.
+        token_position: Token position (-1 = last).
+        top_k_heads:   Top aligned heads to return per layer (1-64).
+
+    Returns:
+        prompt, token_position, token_text,
+        neuron: {layer, neuron_index, activation, output_direction_norm, top_token},
+        num_trace_layers,
+        trace: [{layer, residual_alignment, attention_alignment,
+                 ffn_alignment, residual_projection, top_aligned_heads}],
+        summary
+    """
+```
+
+---
+
+### Group 14 -- Generation (Extended)
+
+#### `track_race`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def track_race(
+    prompt: str,
+    candidates: list[str],
+    layers: list[int] | None = None,
+    token_position: int = -1,
+) -> dict:
+    """
+    Race multiple candidate tokens across layers. Shows how each
+    candidate's probability evolves and detects where the leader
+    changes (crossing events).
+
+    Args:
+        prompt:         Input text.
+        candidates:     2-20 candidate tokens to race.
+        layers:         Layer indices. None = auto-sample ~12 layers.
+        token_position: Token position (-1 = last).
+
+    Returns:
+        prompt, token_position, token_text, num_candidates,
+        candidates: [{token, token_id, layers: [{layer, probability, rank, is_top1}],
+                      emergence_layer, peak_layer, peak_probability}],
+        crossings: [{layer, previous_leader, new_leader, new_leader_probability}],
+        final_winner, final_probability
+    """
+```
+
+#### `probe_at_inference`
+
+```python
+@mcp.tool(read_only_hint=True)
+async def probe_at_inference(
+    prompt: str,
+    probe_name: str,
+    max_tokens: int = 50,
+    temperature: float = 0.0,
+    token_position: int = -1,
+) -> dict:
+    """
+    Run a trained probe during autoregressive generation to monitor
+    the model's internal state token-by-token.
+
+    Args:
+        prompt:         Input text.
+        probe_name:     Name of a stored probe.
+        max_tokens:     Maximum tokens to generate (1-500).
+        temperature:    Sampling temperature. 0 = greedy.
+        token_position: Token position for probe extraction (-1 = last).
+
+    Returns:
+        prompt, probe_name, probe_layer, generated_text, tokens_generated,
+        per_token: [{step, token, token_id, probe_prediction,
+                     probe_confidence, probe_probabilities}],
+        overall_majority_class, overall_mean_confidence, class_distribution
+    """
+```
+
+---
+
+### Group 15 -- Direction Extraction
+
+#### `extract_direction`
+
+```python
+@mcp.tool()
+async def extract_direction(
+    direction_name: str,
+    layer: int,
+    positive_prompts: list[str],
+    negative_prompts: list[str],
+    method: str = "mean_diff",
+    token_position: int = -1,
+) -> dict:
+    """
+    Extract an interpretable direction in activation space.
+    Stored in SteeringVectorRegistry for use with steer_and_generate.
+
+    Args:
+        direction_name:    Name for this direction.
+        layer:             Layer to extract at.
+        positive_prompts:  Target direction prompts.
+        negative_prompts:  Source direction prompts.
+        method:            "mean_diff", "lda", "pca", or "probe".
+        token_position:    Token position (-1 = last).
+
+    Returns:
+        direction_name, layer, method, vector_norm,
+        separation_score, classification_accuracy
+    """
+```
+
+---
+
+### Group 16 -- Experiment Persistence
+
+#### `create_experiment`
+
+```python
+@mcp.tool()
+async def create_experiment(
+    name: str,
+    description: str = "",
+    metadata: dict | None = None,
+) -> dict:
+    """Create a named experiment for result persistence."""
+```
+
+#### `add_experiment_result`
+
+```python
+@mcp.tool()
+async def add_experiment_result(
+    experiment_id: str,
+    step_name: str,
+    result: dict,
+    notes: str = "",
+) -> dict:
+    """Add a step result to an existing experiment."""
+```
+
+#### `get_experiment`
+
+```python
+@mcp.tool(read_only_hint=True)
+async def get_experiment(
+    experiment_id: str,
+) -> dict:
+    """Retrieve an experiment and all its results."""
+```
+
+#### `list_experiments`
+
+```python
+@mcp.tool(read_only_hint=True)
+async def list_experiments() -> dict:
+    """List all saved experiments."""
+```
+
+---
+
 ### Group 8 -- Resources
 
 ```python
@@ -1047,7 +1363,7 @@ Every tool returns a consistent error envelope on failure:
 }
 ```
 
-Error types are defined in `errors.py` as a `ToolError` enum:
+Error types are defined in `errors.py` as a `ToolError` enum (16 types):
 
 - `ModelNotLoaded` -- no model loaded
 - `LayerOutOfRange` -- requested layer exceeds model depth
@@ -1061,6 +1377,9 @@ Error types are defined in `errors.py` as a `ToolError` enum:
 - `AblationFailed` -- ablation or patching error
 - `ComparisonFailed` -- model comparison error
 - `ComparisonIncompatible` -- models have different architecture
+- `ExperimentNotFound` -- named experiment does not exist
+- `ExperimentStoreError` -- experiment persistence error
+- `InterventionFailed` -- component intervention error
 - `LoadFailed` -- model loading error
 
 ---
@@ -1170,4 +1489,4 @@ German."*
 
 ## Version
 
-`0.9.0` -- 34 tools, 4 resources, 9 demo scripts, 53 smoke tests. Apache 2.0.
+`0.14.0` -- 46 tools, 4 resources, 13 demo scripts, 772 tests. Apache 2.0.

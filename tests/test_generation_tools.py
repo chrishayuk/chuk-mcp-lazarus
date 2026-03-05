@@ -9,12 +9,14 @@ from chuk_mcp_lazarus.tools.generation_tools import (
     _embedding_neighbors_impl,
     _logit_lens_impl,
     _predict_next,
+    _track_race_impl,
     _track_token_impl,
     embedding_neighbors,
     generate_text,
     logit_lens,
     predict_next_token,
     tokenize,
+    track_race,
     track_token,
 )
 
@@ -279,6 +281,15 @@ class TestLogitLens:
 class TestLogitLensImpl:
     """Test _logit_lens_impl directly using the stubbed ModelHooks."""
 
+    def _make_norm_project(self):
+        """Create a mock _norm_project that returns vocab-sized logits."""
+        import mlx.core as mx
+
+        def _norm_project(final_norm, lm_head, vec):
+            return mx.array(np.random.randn(100).astype(np.float32))
+
+        return _norm_project
+
     def test_basic_output_structure(self) -> None:
         model = MagicMock()
         config = MagicMock()
@@ -286,15 +297,25 @@ class TestLogitLensImpl:
         tokenizer.encode.return_value = [1, 2, 3, 4, 5]
         tokenizer.decode.side_effect = lambda ids, **kw: " ".join(f"tok{i}" for i in ids)
 
-        result = _logit_lens_impl(
-            model,
-            config,
-            tokenizer,
-            prompt="hello",
-            layers=[0, 1],
-            top_k=5,
-            token_position=-1,
-        )
+        with (
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                side_effect=self._make_norm_project(),
+            ),
+        ):
+            result = _logit_lens_impl(
+                model,
+                config,
+                tokenizer,
+                prompt="hello",
+                layers=[0, 1],
+                top_k=5,
+                token_position=-1,
+            )
 
         assert isinstance(result, dict)
         assert result["prompt"] == "hello"
@@ -311,15 +332,25 @@ class TestLogitLensImpl:
         tokenizer.encode.return_value = [1, 2, 3, 4, 5]
         tokenizer.decode.side_effect = lambda ids, **kw: " ".join(f"tok{i}" for i in ids)
 
-        result = _logit_lens_impl(
-            model,
-            config,
-            tokenizer,
-            prompt="hello",
-            layers=[0],
-            top_k=3,
-            token_position=-1,
-        )
+        with (
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                side_effect=self._make_norm_project(),
+            ),
+        ):
+            result = _logit_lens_impl(
+                model,
+                config,
+                tokenizer,
+                prompt="hello",
+                layers=[0],
+                top_k=3,
+                token_position=-1,
+            )
 
         for pred in result["predictions"]:
             assert "layer" in pred
@@ -334,15 +365,25 @@ class TestLogitLensImpl:
         tokenizer.encode.return_value = [1, 2, 3]
         tokenizer.decode.side_effect = lambda ids, **kw: " ".join(f"tok{i}" for i in ids)
 
-        result = _logit_lens_impl(
-            model,
-            config,
-            tokenizer,
-            prompt="test",
-            layers=[0],
-            top_k=3,
-            token_position=-1,
-        )
+        with (
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                side_effect=self._make_norm_project(),
+            ),
+        ):
+            result = _logit_lens_impl(
+                model,
+                config,
+                tokenizer,
+                prompt="test",
+                layers=[0],
+                top_k=3,
+                token_position=-1,
+            )
 
         summary = result["summary"]
         assert "final_prediction" in summary
@@ -356,15 +397,25 @@ class TestLogitLensImpl:
         tokenizer.encode.return_value = [1, 2, 3, 4, 5]
         tokenizer.decode.side_effect = lambda ids, **kw: " ".join(f"tok{i}" for i in ids)
 
-        result = _logit_lens_impl(
-            model,
-            config,
-            tokenizer,
-            prompt="hello",
-            layers=[0],
-            top_k=3,
-            token_position=0,
-        )
+        with (
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                side_effect=self._make_norm_project(),
+            ),
+        ):
+            result = _logit_lens_impl(
+                model,
+                config,
+                tokenizer,
+                prompt="hello",
+                layers=[0],
+                top_k=3,
+                token_position=0,
+            )
 
         assert result["token_position"] == 0
 
@@ -450,6 +501,15 @@ class TestTrackToken:
 class TestTrackTokenImpl:
     """Test _track_token_impl directly using stubbed ModelHooks."""
 
+    def _make_norm_project(self):
+        """Create a mock _norm_project that returns vocab-sized logits."""
+        import mlx.core as mx
+
+        def _norm_project(final_norm, lm_head, vec):
+            return mx.array(np.random.randn(100).astype(np.float32))
+
+        return _norm_project
+
     def test_basic_output_structure(self) -> None:
         model = MagicMock()
         config = MagicMock()
@@ -457,16 +517,26 @@ class TestTrackTokenImpl:
         tokenizer.encode.return_value = [1, 2, 3, 4, 5]
         tokenizer.decode.side_effect = lambda ids, **kw: " ".join(f"tok{i}" for i in ids)
 
-        result = _track_token_impl(
-            model,
-            config,
-            tokenizer,
-            prompt="hello",
-            layers=[0, 1],
-            target_token_id=42,
-            target_token="world",
-            token_position=-1,
-        )
+        with (
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                side_effect=self._make_norm_project(),
+            ),
+        ):
+            result = _track_token_impl(
+                model,
+                config,
+                tokenizer,
+                prompt="hello",
+                layers=[0, 1],
+                target_token_id=42,
+                target_token="world",
+                token_position=-1,
+            )
 
         assert isinstance(result, dict)
         assert result["prompt"] == "hello"
@@ -485,16 +555,26 @@ class TestTrackTokenImpl:
         tokenizer.encode.return_value = [1, 2, 3, 4, 5]
         tokenizer.decode.side_effect = lambda ids, **kw: " ".join(f"tok{i}" for i in ids)
 
-        result = _track_token_impl(
-            model,
-            config,
-            tokenizer,
-            prompt="hello",
-            layers=[0],
-            target_token_id=42,
-            target_token="world",
-            token_position=-1,
-        )
+        with (
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                side_effect=self._make_norm_project(),
+            ),
+        ):
+            result = _track_token_impl(
+                model,
+                config,
+                tokenizer,
+                prompt="hello",
+                layers=[0],
+                target_token_id=42,
+                target_token="world",
+                token_position=-1,
+            )
 
         for entry in result["layers"]:
             assert "layer" in entry
@@ -509,16 +589,26 @@ class TestTrackTokenImpl:
         tokenizer.encode.return_value = [1, 2, 3]
         tokenizer.decode.side_effect = lambda ids, **kw: " ".join(f"tok{i}" for i in ids)
 
-        result = _track_token_impl(
-            model,
-            config,
-            tokenizer,
-            prompt="test",
-            layers=[0, 1, 2],
-            target_token_id=10,
-            target_token="foo",
-            token_position=-1,
-        )
+        with (
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                side_effect=self._make_norm_project(),
+            ),
+        ):
+            result = _track_token_impl(
+                model,
+                config,
+                tokenizer,
+                prompt="test",
+                layers=[0, 1, 2],
+                target_token_id=10,
+                target_token="foo",
+                token_position=-1,
+            )
 
         assert result["peak_probability"] >= 0.0
 
@@ -529,16 +619,26 @@ class TestTrackTokenImpl:
         tokenizer.encode.return_value = [1, 2, 3, 4, 5]
         tokenizer.decode.side_effect = lambda ids, **kw: " ".join(f"tok{i}" for i in ids)
 
-        result = _track_token_impl(
-            model,
-            config,
-            tokenizer,
-            prompt="hello",
-            layers=[0],
-            target_token_id=42,
-            target_token="world",
-            token_position=0,
-        )
+        with (
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                side_effect=self._make_norm_project(),
+            ),
+        ):
+            result = _track_token_impl(
+                model,
+                config,
+                tokenizer,
+                prompt="hello",
+                layers=[0],
+                target_token_id=42,
+                target_token="world",
+                token_position=0,
+            )
 
         assert result["token_position"] == 0
 
@@ -710,3 +810,498 @@ class TestEmbeddingNeighborsImpl:
 
         for neighbor in result["neighbors"]:
             assert -1.0 <= neighbor["cosine_similarity"] <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# TestTrackRace (async tool)
+# ---------------------------------------------------------------------------
+
+
+class TestTrackRace:
+    @pytest.mark.asyncio
+    async def test_model_not_loaded(self, unloaded_model_state: MagicMock) -> None:
+        result = await track_race(prompt="hello", candidates=["a", "b"])
+        assert result["error"] is True
+        assert result["error_type"] == "ModelNotLoaded"
+
+    @pytest.mark.asyncio
+    async def test_too_few_candidates(self, loaded_model_state: MagicMock) -> None:
+        result = await track_race(prompt="hello", candidates=["a"])
+        assert result["error"] is True
+        assert result["error_type"] == "InvalidInput"
+
+    @pytest.mark.asyncio
+    async def test_too_many_candidates(self, loaded_model_state: MagicMock) -> None:
+        result = await track_race(prompt="hello", candidates=["x"] * 21)
+        assert result["error"] is True
+        assert result["error_type"] == "InvalidInput"
+
+    @pytest.mark.asyncio
+    async def test_layer_out_of_range(self, loaded_model_state: MagicMock) -> None:
+        result = await track_race(prompt="hello", candidates=["a", "b"], layers=[99])
+        assert result["error"] is True
+        assert result["error_type"] == "LayerOutOfRange"
+
+    @pytest.mark.asyncio
+    async def test_success(self, loaded_model_state: MagicMock) -> None:
+        mock_result = {
+            "prompt": "hello",
+            "token_position": -1,
+            "token_text": "hello",
+            "num_candidates": 2,
+            "candidates": [],
+            "crossings": [],
+            "final_winner": "a",
+            "final_probability": 0.5,
+        }
+        with patch(
+            "chuk_mcp_lazarus.tools.generation_tools._track_race_impl",
+            return_value=mock_result,
+        ):
+            result = await track_race(prompt="hello", candidates=["a", "b"], layers=[0, 1])
+        assert "error" not in result
+        assert result["num_candidates"] == 2
+
+    @pytest.mark.asyncio
+    async def test_default_layers(self, loaded_model_state: MagicMock) -> None:
+        """When layers=None, auto-sampling should work."""
+        mock_result = {
+            "prompt": "hello",
+            "token_position": -1,
+            "token_text": "hello",
+            "num_candidates": 2,
+            "candidates": [],
+            "crossings": [],
+            "final_winner": "a",
+            "final_probability": 0.5,
+        }
+        with patch(
+            "chuk_mcp_lazarus.tools.generation_tools._track_race_impl",
+            return_value=mock_result,
+        ):
+            result = await track_race(prompt="hello", candidates=["a", "b"])
+        assert "error" not in result
+
+    @pytest.mark.asyncio
+    async def test_exception_returns_error(self, loaded_model_state: MagicMock) -> None:
+        with patch(
+            "chuk_mcp_lazarus.tools.generation_tools._track_race_impl",
+            side_effect=RuntimeError("race failed"),
+        ):
+            result = await track_race(prompt="hello", candidates=["a", "b"], layers=[0])
+        assert result["error"] is True
+        assert result["error_type"] == "ExtractionFailed"
+
+    @pytest.mark.asyncio
+    async def test_value_error_returns_invalid_input(self, loaded_model_state: MagicMock) -> None:
+        with patch(
+            "chuk_mcp_lazarus.tools.generation_tools._track_race_impl",
+            side_effect=ValueError("bad candidate"),
+        ):
+            result = await track_race(prompt="hello", candidates=["a", "b"], layers=[0])
+        assert result["error"] is True
+        assert result["error_type"] == "InvalidInput"
+
+
+# ---------------------------------------------------------------------------
+# TestTrackRaceImpl (sync helper)
+# ---------------------------------------------------------------------------
+
+
+class TestTrackRaceImpl:
+    """Test _track_race_impl directly using stubbed ModelHooks."""
+
+    # Counter used to create deterministic but different logits per layer
+    _call_count: int = 0
+
+    @staticmethod
+    def _make_tokenizer_for_candidates(
+        candidate_map: dict[str, int],
+        prompt_ids: list[int] | None = None,
+    ) -> MagicMock:
+        """Build a tokenizer that maps candidate strings to specific token IDs.
+
+        candidate_map: e.g. {"a": 42, "b": 43}
+        """
+        prompt_ids = prompt_ids or [1, 2, 3, 4, 5]
+        tok = MagicMock()
+
+        def _encode(text: str, add_special_tokens: bool = True) -> list[int]:
+            bare = text.lstrip()
+            if bare in candidate_map:
+                return [candidate_map[bare]]
+            return prompt_ids
+
+        tok.encode.side_effect = _encode
+        tok.decode.side_effect = lambda ids, **kw: " ".join(f"tok{i}" for i in ids)
+        return tok
+
+    def _make_norm_project_with_leader(self, token_a_id: int, token_b_id: int):
+        """Create _norm_project that makes token_a lead at early layers and
+        token_b overtake at later layers, producing a crossing.
+
+        First call is for candidate resolution (last layer logits), then one
+        call per layer for tracking. We use a counter that starts at -1 so
+        the first (resolution) call gives token_a the lead, then layer calls
+        proceed: layers 0,1 → A leads; layers 2,3 → B leads.
+        """
+        import mlx.core as mx
+
+        call_count = [0]
+
+        def _norm_project(final_norm, lm_head, vec):
+            logits = np.zeros(100, dtype=np.float32)
+            idx = call_count[0]
+            call_count[0] += 1
+            # First call = candidate resolution; layers 0-1 = A leads; 2+ = B leads
+            if idx <= 2:
+                logits[token_a_id] = 5.0
+                logits[token_b_id] = 2.0
+            else:
+                logits[token_a_id] = 2.0
+                logits[token_b_id] = 5.0
+            return mx.array(logits)
+
+        return _norm_project
+
+    def _make_norm_project_stable(self, leader_id: int, other_id: int):
+        """Create _norm_project where leader always wins (no crossings)."""
+        import mlx.core as mx
+
+        def _norm_project(final_norm, lm_head, vec):
+            logits = np.zeros(100, dtype=np.float32)
+            logits[leader_id] = 5.0
+            logits[other_id] = 2.0
+            return mx.array(logits)
+
+        return _norm_project
+
+    def test_output_structure(self) -> None:
+        model = MagicMock()
+        config = MagicMock()
+        tokenizer = MagicMock()
+        tokenizer.encode.return_value = [1, 2, 3, 4, 5]
+        tokenizer.decode.side_effect = lambda ids, **kw: " ".join(f"tok{i}" for i in ids)
+
+        with (
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                side_effect=self._make_norm_project_stable(42, 43),
+            ),
+        ):
+            result = _track_race_impl(
+                model,
+                config,
+                tokenizer,
+                prompt="hello",
+                candidates=["a", "b"],
+                layers=[0, 1],
+                token_position=-1,
+            )
+
+        assert isinstance(result, dict)
+        assert result["prompt"] == "hello"
+        assert "candidates" in result
+        assert "crossings" in result
+        assert "final_winner" in result
+        assert "final_probability" in result
+        assert "num_candidates" in result
+        assert result["num_candidates"] == 2
+        assert result["token_position"] == -1
+
+    def test_candidates_fields(self) -> None:
+        model = MagicMock()
+        config = MagicMock()
+        tokenizer = MagicMock()
+        tokenizer.encode.return_value = [1, 2, 3, 4, 5]
+        tokenizer.decode.side_effect = lambda ids, **kw: " ".join(f"tok{i}" for i in ids)
+
+        with (
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                side_effect=self._make_norm_project_stable(42, 43),
+            ),
+        ):
+            result = _track_race_impl(
+                model,
+                config,
+                tokenizer,
+                prompt="hello",
+                candidates=["a", "b"],
+                layers=[0, 1],
+                token_position=-1,
+            )
+
+        for cand in result["candidates"]:
+            assert "token" in cand
+            assert "token_id" in cand
+            assert "layers" in cand
+            assert "peak_layer" in cand
+            assert "peak_probability" in cand
+            for entry in cand["layers"]:
+                assert "layer" in entry
+                assert "probability" in entry
+                assert "rank" in entry
+                assert "is_top1" in entry
+
+    def test_two_candidates(self) -> None:
+        model = MagicMock()
+        config = MagicMock()
+        tokenizer = MagicMock()
+        tokenizer.encode.return_value = [1, 2, 3, 4, 5]
+        tokenizer.decode.side_effect = lambda ids, **kw: " ".join(f"tok{i}" for i in ids)
+
+        with (
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                side_effect=self._make_norm_project_stable(42, 43),
+            ),
+        ):
+            result = _track_race_impl(
+                model,
+                config,
+                tokenizer,
+                prompt="hello",
+                candidates=["a", "b"],
+                layers=[0, 1, 2],
+                token_position=-1,
+            )
+
+        assert len(result["candidates"]) == 2
+
+    def test_crossing_detection(self) -> None:
+        """When token A leads early and token B overtakes, a crossing is detected."""
+        model = MagicMock()
+        config = MagicMock()
+        tokenizer = self._make_tokenizer_for_candidates({"a": 42, "b": 43})
+
+        with (
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                side_effect=self._make_norm_project_with_leader(42, 43),
+            ),
+        ):
+            result = _track_race_impl(
+                model,
+                config,
+                tokenizer,
+                prompt="hello",
+                candidates=["a", "b"],
+                layers=[0, 1, 2, 3],
+                token_position=-1,
+            )
+
+        assert len(result["crossings"]) >= 1
+        crossing = result["crossings"][0]
+        assert "layer" in crossing
+        assert "previous_leader" in crossing
+        assert "new_leader" in crossing
+        assert "new_leader_probability" in crossing
+
+    def test_no_crossings(self) -> None:
+        """When the same candidate leads at every layer, no crossings."""
+        model = MagicMock()
+        config = MagicMock()
+        tokenizer = self._make_tokenizer_for_candidates({"a": 42, "b": 43})
+
+        with (
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                side_effect=self._make_norm_project_stable(42, 43),
+            ),
+        ):
+            result = _track_race_impl(
+                model,
+                config,
+                tokenizer,
+                prompt="hello",
+                candidates=["a", "b"],
+                layers=[0, 1, 2],
+                token_position=-1,
+            )
+
+        assert result["crossings"] == []
+
+    def test_emergence_layer(self) -> None:
+        """emergence_layer should be the first layer where a candidate is top-1."""
+        model = MagicMock()
+        config = MagicMock()
+        tokenizer = self._make_tokenizer_for_candidates({"a": 42, "b": 43})
+
+        with (
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                side_effect=self._make_norm_project_stable(42, 43),
+            ),
+        ):
+            result = _track_race_impl(
+                model,
+                config,
+                tokenizer,
+                prompt="hello",
+                candidates=["a", "b"],
+                layers=[0, 1, 2],
+                token_position=-1,
+            )
+
+        # Token 42 always leads → should emerge at layer 0
+        leader = [c for c in result["candidates"] if c["token_id"] == 42]
+        assert len(leader) == 1
+        assert leader[0]["emergence_layer"] == 0
+
+    def test_peak_probability(self) -> None:
+        """peak_probability should be >= all layer probabilities for that candidate."""
+        model = MagicMock()
+        config = MagicMock()
+        tokenizer = self._make_tokenizer_for_candidates({"a": 42, "b": 43})
+
+        with (
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                side_effect=self._make_norm_project_stable(42, 43),
+            ),
+        ):
+            result = _track_race_impl(
+                model,
+                config,
+                tokenizer,
+                prompt="hello",
+                candidates=["a", "b"],
+                layers=[0, 1, 2],
+                token_position=-1,
+            )
+
+        for cand in result["candidates"]:
+            layer_probs = [e["probability"] for e in cand["layers"]]
+            assert cand["peak_probability"] >= max(layer_probs) - 1e-6
+
+    def test_final_winner(self) -> None:
+        """final_winner should be the candidate with highest prob at last layer."""
+        model = MagicMock()
+        config = MagicMock()
+        tokenizer = self._make_tokenizer_for_candidates({"a": 42, "b": 43})
+
+        with (
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                side_effect=self._make_norm_project_stable(42, 43),
+            ),
+        ):
+            result = _track_race_impl(
+                model,
+                config,
+                tokenizer,
+                prompt="hello",
+                candidates=["a", "b"],
+                layers=[0, 1, 2],
+                token_position=-1,
+            )
+
+        # Token 42 always leads
+        assert result["final_winner"] != ""
+        assert result["final_probability"] > 0.0
+        # The winner should be token 42's text
+        winner_cand = [c for c in result["candidates"] if c["token"] == result["final_winner"]]
+        assert len(winner_cand) == 1
+        assert winner_cand[0]["token_id"] == 42
+
+    def test_token_position_zero(self) -> None:
+        model = MagicMock()
+        config = MagicMock()
+        tokenizer = MagicMock()
+        tokenizer.encode.return_value = [1, 2, 3, 4, 5]
+        tokenizer.decode.side_effect = lambda ids, **kw: " ".join(f"tok{i}" for i in ids)
+
+        with (
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                side_effect=self._make_norm_project_stable(42, 43),
+            ),
+        ):
+            result = _track_race_impl(
+                model,
+                config,
+                tokenizer,
+                prompt="hello",
+                candidates=["a", "b"],
+                layers=[0],
+                token_position=0,
+            )
+
+        assert result["token_position"] == 0
+
+    def test_three_candidates(self) -> None:
+        """Three candidates should all appear in results."""
+        import mlx.core as mx
+
+        model = MagicMock()
+        config = MagicMock()
+        tokenizer = MagicMock()
+        tokenizer.encode.return_value = [1, 2, 3, 4, 5]
+        tokenizer.decode.side_effect = lambda ids, **kw: " ".join(f"tok{i}" for i in ids)
+
+        def _norm_project(final_norm, lm_head, vec):
+            logits = np.zeros(100, dtype=np.float32)
+            logits[42] = 5.0
+            logits[43] = 3.0
+            logits[44] = 1.0
+            return mx.array(logits)
+
+        with (
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                side_effect=_norm_project,
+            ),
+        ):
+            result = _track_race_impl(
+                model,
+                config,
+                tokenizer,
+                prompt="hello",
+                candidates=["a", "b", "c"],
+                layers=[0, 1],
+                token_position=-1,
+            )
+
+        assert result["num_candidates"] == 3
+        assert len(result["candidates"]) == 3

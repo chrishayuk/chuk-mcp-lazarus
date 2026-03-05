@@ -178,11 +178,11 @@ across all tools. Shared comparison guard `_require_comparison_models()`.
 Deeper interpretability tools that unlock neuron-level analysis,
 causal tracing, direction extraction, and residual decomposition.
 These turn lazarus from a probing/steering toolkit into a full
-mechanistic interpretability research platform capable of running
-the revolutionary experiments described below.
+mechanistic interpretability research platform.
 
-**Implementation is prioritized by how many revolutionary experiments
-each tool unblocks.** All backends exist in chuk-lazarus.
+**Steps 7--12 are complete.** Steps 13--14 remain but are
+deprioritized in favor of Phase 1c (experiment-driven gaps).
+All backends exist in chuk-lazarus.
 
 ### Step 7: Neuron Analysis ✅ (v0.10.0)
 
@@ -313,9 +313,80 @@ queries and injects retrieved values into the residual stream.
 
 ---
 
+## Phase 1c -- Experiment-Driven Priorities
+
+Steps 13--14 were planned theoretically. Phase 1c is prioritized by
+what **actually broke** when running real experiments: the
+Computational Stratigraphy (full-depth layer map) and the Embedding
+War (attention vs FFN attribution analysis across prompts). These
+experiments exposed seven concrete tool gaps, ranked by how badly
+they block the research program.
+
+### What Happened
+
+The stratigraphy experiment ran six methods across all 34 layers of
+Gemma 3 4B. Logit lens failed completely because `ModelHooks.get_layer_logits()`
+applies the wrong normalization for Gemma's architecture — one of
+six measurement methods went blind. The embedding war experiment ran
+`logit_attribution` prompt-by-prompt and manually tracked the
+attention-vs-FFN balance in the context window, burning tokens on
+bookkeeping instead of analysis. The agent found critical neurons
+(605, 1633, 889) but couldn't trace how information flows between
+them across layers. And when the session ended, all findings vanished.
+
+### Steps 15--22 — Complete ✅
+
+#### Step 15: Calibrated Logit Lens ✅
+
+Fixed `logit_lens` and `track_token` to use calibrated `final_norm → lm_head`
+projection. Works on all architectures including Gemma 3 (4-norm layers, tied embeddings).
+
+#### Step 16: Attribution Sweep ✅
+
+Batch logit attribution across multiple prompts with per-layer summary
+statistics and per-prompt summary rows (`attribution_sweep`).
+
+#### Step 17: Experiment Persistence ✅
+
+Cross-session experiment memory: `create_experiment`, `add_experiment_result`,
+`get_experiment`, `list_experiments`. Stores to `~/.chuk-lazarus/experiments/`.
+
+#### Step 18: Enhanced Attribution Sweep ✅
+
+Added `prompt_summary` field to `attribution_sweep` — per-prompt summary rows
+(embedding logit, net attention, net FFN, final logit, probability, dominant component).
+
+#### Step 19: Track Race ✅
+
+Multi-candidate logit trajectory (`track_race`). Race 2-20 tokens across layers
+in a single forward pass with crossing detection.
+
+#### Step 20: Component Intervention ✅
+
+Surgical causal intervention (`component_intervention`). Zero/scale attention,
+FFN, or individual heads at a specific layer. Compares clean vs intervened predictions
+with KL divergence.
+
+#### Step 21: Probe at Inference ✅
+
+Runtime probe monitoring (`probe_at_inference`). Run a trained probe during
+autoregressive generation to track internal state evolution token-by-token.
+
+#### Step 22: Neuron Trace ✅
+
+Neuron influence tracing (`neuron_trace`). Trace a neuron's output direction
+through downstream layers via cosine similarity with residual, attention, and FFN states.
+
+**Status:** Steps 15--22 complete. **46 tools**, **772 tests**, `make check` green.
+
+Steps 13--14 (confidence/metacognition, external memory) remain valid
+but are deprioritized.
+
+---
+
 ## Revolutionary Experiments
 
-These are the experiments that become possible as Phase 1b tools
+These are the experiments that become possible as Phase 1b/1c tools
 are implemented. Each requires multi-tool composition that no single
 technique can achieve. See `REVOLUTIONARY-EXPERIMENTS.md` for full
 details.
@@ -330,11 +401,11 @@ tuples, verified causally.
 circuit discovery on 4B+ models. Current circuit analysis is manual
 and takes weeks per circuit.
 
-**Tool chain:** `logit_lens` → `track_token` → `full_causal_trace` →
-`residual_decomposition` → `attention_pattern` → `discover_neurons` →
-`patch_activations`
+**Tool chain:** `logit_lens` → `track_token` →
+`full_causal_trace` → `residual_decomposition` → `attention_pattern` →
+`discover_neurons` → `neuron_trace` → `patch_activations`
 
-**Requires:** Steps 10, 7, 12
+**Requires:** Steps 10, 7, 12, 15, 20
 
 ### Experiment 2: Knowledge Surgery Without Fine-Tuning
 
@@ -354,18 +425,19 @@ to "patch at runtime." Direct safety implications.
 
 **Goal:** Multi-method map of what each layer computes. For every
 layer: what information it contains (probes), what it predicts
-(logit lens), whether it's necessary (ablation), what direction
-the feature lives in (directions), how many neurons encode it
-(neurons), and whether attention or MLP is responsible (decomposition).
+(calibrated logit lens), whether it's necessary (ablation), what
+direction the feature lives in (directions), how many neurons encode
+it (neurons), and whether attention or MLP is responsible
+(decomposition). Results persisted for cross-session analysis.
 
 **Why revolutionary:** No complete multi-method stratigraphy exists
 for any 4B+ model. Combines 6 independent measurement methods.
 
-**Tool chain:** `scan_probe_across_layers` + `logit_lens` +
+**Tool chain:** `scan_probe_across_layers` + `logit_lens` (calibrated) +
 `ablate_layers` + `extract_direction` + `discover_neurons` +
-`residual_decomposition`
+`residual_decomposition` + `save_experiment`
 
-**Requires:** Steps 7, 11, 12
+**Requires:** Steps 7, 11, 12, 15, 17
 
 ### Experiment 4: The Fine-Tuning Delta Problem
 
@@ -377,10 +449,11 @@ attention heads, and causal circuits changed.
 ("train and benchmark") to mechanistic ("train and understand").
 
 **Tool chain:** `compare_generations` → `compare_weights` →
-`compare_representations` → `extract_direction` (both models) →
-`discover_neurons` (both models) → `trace_token` (both models)
+`compare_representations` → `attribution_sweep` (both models) →
+`compare_attributions` → `discover_neurons` (both models) →
+`trace_token` (both models)
 
-**Requires:** Steps 10, 11, 7
+**Requires:** Steps 10, 11, 7, 16, 18
 
 ### Experiment 5: Does the Model Know What It Knows?
 
@@ -393,10 +466,10 @@ networks. If positive, enables hallucination detection at the
 representation level.
 
 **Tool chain:** `scan_probe_across_layers` (knows/doesn't-know labels) →
-`extract_direction` (certainty direction) → `measure_confidence` →
-`detect_format_gate` → `steer_and_generate` (along uncertainty direction)
+`extract_direction` (certainty direction) → `bootstrap_test`
+(significance) → `steer_and_generate` (along uncertainty direction)
 
-**Requires:** Steps 11, 13
+**Requires:** Steps 11, 21 (Steps 13 optional enhancement)
 
 ### Experiment 6: Cross-Model Universal Circuits
 
@@ -409,10 +482,11 @@ neural network computation, or if each architecture finds its own
 solution.
 
 **Tool chain:** Full stratigraphy (Experiment 3) × 3 models,
-then cross-model comparison of probe curves, emergence layers,
-neuron counts, and attention-vs-MLP ratios.
+then cross-model `compare_attributions` of probe curves, emergence
+layers, neuron counts, and attention-vs-MLP ratios. Requires
+`logit_lens` (calibrated) to work across architectures.
 
-**Requires:** Steps 7, 11, 12
+**Requires:** Steps 7, 11, 12, 15, 18
 
 ### Experiment 7: Runtime Safety Patching
 
@@ -427,24 +501,49 @@ doesn't "know but is told not to say" -- the harmful computation
 is replaced in the residual stream.
 
 **Tool chain:** `full_causal_trace` → `extract_direction` →
-`inject_fact` → `query_with_memory` → `generate_text` (verify)
+`component_intervention` (surgical suppression) →
+`generate_text` (verify)
 
-**Requires:** Steps 10, 11, 14
+**Requires:** Steps 10, 11, 19 (Step 14 for persistent patching)
 
-### Experiment Priority Matrix
+### Experiment 8: The Embedding War
 
-| Tool (Step) | Exp 1 | Exp 2 | Exp 3 | Exp 4 | Exp 5 | Exp 6 | Exp 7 | Total |
-|-------------|-------|-------|-------|-------|-------|-------|-------|-------|
-| `trace_token` / `full_causal_trace` (10) | ✓ | ✓ | ✓ | ✓ | | | ✓ | **5** |
-| `extract_direction` (11) | | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **5** |
-| `discover_neurons` / `analyze_neuron` (7) | ✓ | | ✓ | ✓ | ✓ | ✓ | | **5** |
-| `residual_decomposition` (12) | ✓ | | ✓ | | | ✓ | | **3** |
-| `layer_clustering` (12) | | | ✓ | | | ✓ | | **2** |
-| `measure_confidence` (13) | | | | | ✓ | | | **1** |
-| `detect_format_gate` (13) | | | | | ✓ | | | **1** |
-| `inject_fact` / `query_with_memory` (14) | | ✓ | | | | | ✓ | **2** |
+**Goal:** Map how the embedding layer's initial bias (encoding
+surface-level token identity) gets overwritten by deeper
+computation. Track the battle between attention (which builds
+context) and FFN (which applies learned transformations) across
+all layers. Identify where correctness emerges and whether the
+attention-vs-FFN balance predicts hallucination.
 
-**Implementation order:** Steps 10 → 11 → 7 → 12 → 14 → 13
+**Why revolutionary:** Reveals the fundamental computational
+tension in transformers: pre-trained token identity vs contextual
+computation. No one has systematically mapped this war across
+an entire model.
+
+**Tool chain:** `attribution_sweep` (20+ prompts) →
+`compare_attributions` → `component_intervention` (surgical tests) →
+`discover_neurons` → `neuron_trace` → `bootstrap_test`
+
+**Requires:** Steps 16, 18, 19, 7, 20, 21
+
+### Experiment Priority Matrix (Updated)
+
+| Tool (Step) | Exp 1 | Exp 2 | Exp 3 | Exp 4 | Exp 5 | Exp 6 | Exp 7 | Exp 8 | Status |
+|-------------|-------|-------|-------|-------|-------|-------|-------|-------|--------|
+| `logit_lens` calibrated (15) | ✓ | | ✓ | ✓ | ✓ | ✓ | | | ✅ |
+| `attribution_sweep` (16) | | | ✓ | ✓ | | | | ✓ | ✅ |
+| `create/get_experiment` (17) | ✓ | | ✓ | ✓ | ✓ | ✓ | | ✓ | ✅ |
+| `track_race` (19) | | | | | | ✓ | | ✓ | ✅ |
+| `component_intervention` (20) | ✓ | | | | | | ✓ | ✓ | ✅ |
+| `probe_at_inference` (21) | | | | | ✓ | | | | ✅ |
+| `neuron_trace` (22) | ✓ | | | ✓ | | | | ✓ | ✅ |
+| `trace_token` / `full_causal_trace` (10) | ✓ | ✓ | | ✓ | | | ✓ | | ✅ |
+| `extract_direction` (11) | | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | | ✅ |
+| `discover_neurons` / `analyze_neuron` (7) | ✓ | | ✓ | ✓ | | ✓ | | ✓ | ✅ |
+| `measure_confidence` (13) | | | | | opt | | | | |
+| `inject_fact` / `query_with_memory` (14) | | ✓ | | | | | opt | | |
+
+**Remaining:** Steps 13 → 14
 
 ---
 
@@ -597,12 +696,16 @@ If chuk-lazarus training capabilities are exposed:
 | 0.9.0 | Phase 1 Step 6h (head_attribution, top_neurons, embedding_neighbors) | ✅ |
 | 0.9.1 | Phase 1 Step 6i (comprehensive test suite: 595 tests, 96% coverage) | ✅ |
 | 0.10.0 | Phase 1b Steps 7+11 (direction, neurons: 3 tools, 639 tests) | ✅ |
-| 0.12.0 | Phase 1b Steps 13--14 (confidence, metacognition, external memory) | |
-| 0.13.0 | Phase 2 (tokenizer server) | |
-| 0.14.0 | Phase 3 (introspect server) | |
-| 0.15.0 | Phase 4 core (MoE: routing, ablation, identification) | |
-| 0.15.x | Phase 4 extended (MoE: circuits, compression, dynamics) | |
-| 1.0.0 | State persistence, multi-model sessions, production hardening | |
+| 0.11.0 | Phase 1c Step 15 (calibrated logit lens: architecture-aware projection) | ✅ |
+| 0.12.0 | Phase 1c Step 16 (attribution_sweep: batch logit attribution) | ✅ |
+| 0.13.0 | Phase 1c Step 17 (experiment persistence: create/add/get/list) | ✅ |
+| 0.14.0 | Phase 1d Steps 18--22 (track_race, component_intervention, probe_at_inference, neuron_trace) | ✅ |
+| 0.15.0 | Phase 1b Steps 13--14 (confidence, metacognition, external memory) | |
+| 0.17.0 | Phase 2 (tokenizer server) | |
+| 0.18.0 | Phase 3 (introspect server) | |
+| 0.19.0 | Phase 4 core (MoE: routing, ablation, identification) | |
+| 0.19.x | Phase 4 extended (MoE: circuits, compression, dynamics) | |
+| 1.0.0 | Cross-session research, multi-model sessions, production hardening | |
 
 ---
 
@@ -610,22 +713,20 @@ If chuk-lazarus training capabilities are exposed:
 
 | Phase | Server | Tools |
 |-------|--------|-------|
-| 1 | lazarus (core) | 37 |
-| 1b | lazarus (extended) | ~6 |
+| 1+1b+1c+1d | lazarus (core + extended + experiment-driven) | 46 |
 | 2 | tokenizer | 11 |
 | 3 | introspect | 7 |
 | 4 | moe | 20 |
-| **Total** | | **~77** |
+| **Total** | | **~84** |
 
 ---
 
-## chuk-lazarus Backend Coverage
+## Backend Coverage
 
-All Phase 1b tools have production-ready backends in chuk-lazarus.
-No new backend development is required -- only MCP wrapping.
+### Phase 1b — chuk-lazarus backends (production-ready, MCP wrapping only)
 
-| Phase 1b Tool | Backend Class | File | Lines |
-|---------------|---------------|------|-------|
+| Tool | Backend Class | File | Lines |
+|------|---------------|------|-------|
 | `trace_token` | `CounterfactualIntervention` | `introspection/interventions.py` | 975 |
 | `full_causal_trace` | `CounterfactualIntervention` | `introspection/interventions.py` | 975 |
 | `extract_direction` | `DirectionExtractor` | `introspection/circuit/directions.py` | 489 |
@@ -637,3 +738,15 @@ No new backend development is required -- only MCP wrapping.
 | `detect_format_gate` | `MetacognitiveResult` | `introspection/models/uncertainty.py` | 103 |
 | `inject_fact` | `ExternalMemory` | `introspection/external_memory.py` | 723 |
 | `query_with_memory` | `ExternalMemory` | `introspection/external_memory.py` | 723 |
+
+### Phase 1c/1d — implementation notes
+
+| Tool | Backend | Status |
+|------|---------|--------|
+| `logit_lens` (calibrated) | `residual_tools._get_lm_projection()` + `ModelHooks._get_final_norm()` | ✅ |
+| `attribution_sweep` | Loop `_logit_attribution_impl()` + prompt_summary post-processing | ✅ |
+| `create/get_experiment` | `ExperimentStore` singleton, filesystem JSON | ✅ |
+| `track_race` | `ModelHooks` + `_norm_project` per candidate per layer | ✅ |
+| `component_intervention` | Manual forward with `_run_forward_with_intervention` | ✅ |
+| `probe_at_inference` | `ModelHooks.forward()` per step + sklearn `predict_proba` | ✅ |
+| `neuron_trace` | `_run_decomposition_forward` + SwiGLU + cosine similarity | ✅ |

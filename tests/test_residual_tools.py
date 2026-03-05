@@ -1231,7 +1231,7 @@ class TestLogitAttribution:
             result = await logit_attribution(prompt="hello", layers=[0])
 
         assert result["error"] is True
-        assert result["error_type"] == "ExtractionFailed"
+        assert result["error_type"] == "InvalidInput"
 
     @pytest.mark.asyncio
     async def test_non_decomposable_layers(self, loaded_model_state: MagicMock) -> None:

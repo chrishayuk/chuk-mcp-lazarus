@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chuk-mcp-lazarus"
-version = "0.9.2"
+version = "0.10"
 description = "Mechanistic interpretability MCP server wrapping chuk-lazarus"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -14,7 +14,7 @@ authors = [
 ]
 dependencies = [
     "chuk-mcp-server>=0.25",
-    "chuk-lazarus>=0.4",
+    "chuk-lazarus>=0.4.1",
     "scikit-learn>=1.4",
     "numpy>=1.26",
 ]

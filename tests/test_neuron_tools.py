@@ -9,9 +9,12 @@ import pytest
 
 from chuk_mcp_lazarus.tools.neuron_tools import (
     _analyze_neuron_impl,
+    _cosine_sim,
     _discover_neurons_impl,
+    _neuron_trace_impl,
     analyze_neuron,
     discover_neurons,
+    neuron_trace,
 )
 
 
@@ -572,3 +575,284 @@ class TestAnalyzeNeuronImpl:
 
         # model_dump(exclude_none=True) means the key should be absent
         assert "per_prompt_activations" not in result
+
+
+# ---------------------------------------------------------------------------
+# TestNeuronTrace (async tool)
+# ---------------------------------------------------------------------------
+
+
+class TestNeuronTrace:
+    @pytest.mark.asyncio
+    async def test_model_not_loaded(self, unloaded_model_state: MagicMock) -> None:
+        result = await neuron_trace(prompt="hello", layer=0, neuron_index=0)
+        assert result["error"] is True
+        assert result["error_type"] == "ModelNotLoaded"
+
+    @pytest.mark.asyncio
+    async def test_layer_out_of_range(self, loaded_model_state: MagicMock) -> None:
+        result = await neuron_trace(prompt="hello", layer=99, neuron_index=0)
+        assert result["error"] is True
+        assert result["error_type"] == "LayerOutOfRange"
+
+    @pytest.mark.asyncio
+    async def test_neuron_out_of_range(self, loaded_model_state: MagicMock) -> None:
+        result = await neuron_trace(prompt="hello", layer=0, neuron_index=9999)
+        assert result["error"] is True
+        assert result["error_type"] == "InvalidInput"
+
+    @pytest.mark.asyncio
+    async def test_target_before_source(self, loaded_model_state: MagicMock) -> None:
+        result = await neuron_trace(prompt="hello", layer=2, neuron_index=0, target_layers=[1])
+        assert result["error"] is True
+        assert result["error_type"] == "InvalidInput"
+
+    @pytest.mark.asyncio
+    async def test_target_out_of_range(self, loaded_model_state: MagicMock) -> None:
+        result = await neuron_trace(prompt="hello", layer=0, neuron_index=0, target_layers=[99])
+        assert result["error"] is True
+        assert result["error_type"] == "LayerOutOfRange"
+
+    @pytest.mark.asyncio
+    async def test_success(self, loaded_model_state: MagicMock) -> None:
+        mock_result = {
+            "prompt": "hello",
+            "token_position": -1,
+            "token_text": "hello",
+            "neuron": {
+                "layer": 0,
+                "neuron_index": 5,
+                "activation": 0.5,
+                "output_direction_norm": 1.0,
+                "top_token": "tok",
+            },
+            "num_trace_layers": 2,
+            "trace": [],
+            "summary": {},
+        }
+        with patch(
+            "chuk_mcp_lazarus.tools.neuron_tools._neuron_trace_impl",
+            return_value=mock_result,
+        ):
+            result = await neuron_trace(
+                prompt="hello", layer=0, neuron_index=5, target_layers=[1, 2]
+            )
+        assert "error" not in result
+
+    @pytest.mark.asyncio
+    async def test_default_targets(self, loaded_model_state: MagicMock) -> None:
+        """When target_layers=None, auto-generates range(layer+1, ...)."""
+        mock_result = {
+            "prompt": "hello",
+            "token_position": -1,
+            "token_text": "hello",
+            "neuron": {},
+            "num_trace_layers": 3,
+            "trace": [],
+            "summary": {},
+        }
+        with patch(
+            "chuk_mcp_lazarus.tools.neuron_tools._neuron_trace_impl",
+            return_value=mock_result,
+        ):
+            result = await neuron_trace(prompt="hello", layer=0, neuron_index=5)
+        assert "error" not in result
+
+    @pytest.mark.asyncio
+    async def test_exception_returns_error(self, loaded_model_state: MagicMock) -> None:
+        with patch(
+            "chuk_mcp_lazarus.tools.neuron_tools._neuron_trace_impl",
+            side_effect=RuntimeError("trace failed"),
+        ):
+            result = await neuron_trace(prompt="hello", layer=0, neuron_index=5, target_layers=[1])
+        assert result["error"] is True
+        assert result["error_type"] == "ExtractionFailed"
+
+    @pytest.mark.asyncio
+    async def test_no_target_layers_for_last_layer(self, loaded_model_state: MagicMock) -> None:
+        """Source at last layer (3) → no valid target layers → error."""
+        result = await neuron_trace(prompt="hello", layer=3, neuron_index=0)
+        assert result["error"] is True
+        assert result["error_type"] == "InvalidInput"
+
+
+# ---------------------------------------------------------------------------
+# TestNeuronTraceImpl (sync helper)
+# ---------------------------------------------------------------------------
+
+
+class TestNeuronTraceImpl:
+    """Test _neuron_trace_impl with mocked decomposition forward."""
+
+    def _run(
+        self,
+        layer: int = 0,
+        neuron_index: int = 5,
+        target_layers: list[int] | None = None,
+    ) -> dict:
+        import mlx.core as mx
+
+        target_layers = target_layers or [1, 2]
+        model = MagicMock()
+        config = MagicMock()
+        tokenizer = MagicMock()
+        tokenizer.encode.return_value = [1, 2, 3, 4, 5]
+        tokenizer.decode.side_effect = lambda ids, **kw: " ".join(f"tok{i}" for i in ids)
+
+        metadata = MagicMock()
+        metadata.num_layers = 4
+        metadata.num_attention_heads = 4
+        metadata.num_kv_heads = 4
+        metadata.head_dim = 16
+        metadata.hidden_dim = 64
+        metadata.intermediate_size = 256
+
+        # Build fake decomposition result
+        all_layers = sorted(set([layer] + target_layers))
+        hidden_states = {}
+        prev_hidden = {}
+        attn_outputs = {}
+        ffn_outputs = {}
+
+        for li in all_layers:
+            hidden_states[li] = mx.array(np.random.randn(1, 5, 64).astype(np.float32))
+            prev_hidden[li] = mx.array(np.random.randn(1, 5, 64).astype(np.float32))
+            attn_outputs[li] = mx.array(np.random.randn(1, 5, 64).astype(np.float32))
+            ffn_outputs[li] = mx.array(np.random.randn(1, 5, 64).astype(np.float32))
+
+        decomp_result = {
+            "embeddings": mx.array(np.random.randn(1, 5, 64).astype(np.float32)),
+            "hidden_states": hidden_states,
+            "prev_hidden": prev_hidden,
+            "attn_outputs": attn_outputs,
+            "ffn_outputs": ffn_outputs,
+        }
+
+        # Mock MLP components with proper shapes
+        mock_gate = mx.array(np.random.randn(1, 256).astype(np.float32))
+        mock_up = mx.array(np.random.randn(1, 256).astype(np.float32))
+        mock_down_weight = mx.array(np.random.randn(64, 256).astype(np.float32))
+
+        # Build fake model layers with working MLP components
+        fake_mlp = MagicMock()
+        fake_mlp.gate_proj = lambda x: mock_gate
+        fake_mlp.up_proj = lambda x: mock_up
+        fake_mlp.down_proj.weight = mock_down_weight
+
+        fake_layers = []
+        for _ in range(4):
+            fl = MagicMock()
+            fl.mlp = fake_mlp
+            fl.post_attention_layernorm = lambda x: x
+            fake_layers.append(fl)
+
+        model.model.layers = fake_layers
+
+        with (
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                return_value=decomp_result,
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "chuk_mcp_lazarus.tools.residual_tools._project_to_logits",
+                return_value=mx.array(np.random.randn(100).astype(np.float32)),
+            ),
+        ):
+            return _neuron_trace_impl(
+                model,
+                config,
+                tokenizer,
+                metadata,
+                prompt="hello",
+                layer=layer,
+                neuron_index=neuron_index,
+                target_layers=target_layers,
+                token_position=-1,
+                top_k_heads=5,
+            )
+
+    def test_output_structure(self) -> None:
+        result = self._run()
+        assert isinstance(result, dict)
+        assert result["prompt"] == "hello"
+        assert "neuron" in result
+        assert "trace" in result
+        assert "summary" in result
+        assert "num_trace_layers" in result
+        assert result["token_position"] == -1
+
+    def test_neuron_info_fields(self) -> None:
+        result = self._run()
+        neuron = result["neuron"]
+        assert "layer" in neuron
+        assert "neuron_index" in neuron
+        assert "activation" in neuron
+        assert "output_direction_norm" in neuron
+        assert "top_token" in neuron
+        assert neuron["layer"] == 0
+        assert neuron["neuron_index"] == 5
+
+    def test_trace_length(self) -> None:
+        result = self._run(target_layers=[1, 2, 3])
+        assert len(result["trace"]) == 3
+
+    def test_trace_entry_fields(self) -> None:
+        result = self._run()
+        for entry in result["trace"]:
+            assert "layer" in entry
+            assert "residual_alignment" in entry
+            assert "residual_projection" in entry
+
+    def test_alignment_range(self) -> None:
+        result = self._run()
+        for entry in result["trace"]:
+            assert -1.0 <= entry["residual_alignment"] <= 1.0
+
+    def test_attention_alignment_range(self) -> None:
+        result = self._run()
+        for entry in result["trace"]:
+            if "attention_alignment" in entry:
+                assert -1.0 <= entry["attention_alignment"] <= 1.0
+
+    def test_ffn_alignment_range(self) -> None:
+        result = self._run()
+        for entry in result["trace"]:
+            if "ffn_alignment" in entry:
+                assert -1.0 <= entry["ffn_alignment"] <= 1.0
+
+    def test_summary(self) -> None:
+        result = self._run()
+        summary = result["summary"]
+        assert "max_residual_alignment" in summary
+        assert "max_alignment_layer" in summary
+        assert "num_trace_layers" in summary
+        assert "top_token" in summary
+
+
+# ---------------------------------------------------------------------------
+# TestCosineSim
+# ---------------------------------------------------------------------------
+
+
+class TestCosineSim:
+    def test_identical_vectors(self) -> None:
+        v = np.array([1.0, 2.0, 3.0])
+        assert abs(_cosine_sim(v, v) - 1.0) < 1e-6
+
+    def test_opposite_vectors(self) -> None:
+        v = np.array([1.0, 2.0, 3.0])
+        assert abs(_cosine_sim(v, -v) - (-1.0)) < 1e-6
+
+    def test_orthogonal_vectors(self) -> None:
+        a = np.array([1.0, 0.0])
+        b = np.array([0.0, 1.0])
+        assert abs(_cosine_sim(a, b)) < 1e-6
+
+    def test_zero_vector(self) -> None:
+        a = np.array([1.0, 2.0])
+        b = np.zeros(2)
+        assert _cosine_sim(a, b) == 0.0

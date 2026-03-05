@@ -37,7 +37,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 }
 ```
 
-## Tools (34)
+## Tools (46)
 
 | Group | Tool | Purpose |
 |-------|------|---------|
@@ -46,8 +46,9 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 | Generation | `generate_text` | Generate text from the loaded model |
 | Generation | `predict_next_token` | Top-k next-token predictions with probabilities |
 | Generation | `tokenize` | Show how text is tokenized |
-| Generation | `logit_lens` | Layer-by-layer prediction evolution (logit lens) |
+| Generation | `logit_lens` | Layer-by-layer prediction evolution (calibrated logit lens) |
 | Generation | `track_token` | Track a specific token's probability across layers |
+| Generation | `track_race` | Race N candidate tokens across layers with crossing detection |
 | Generation | `embedding_neighbors` | Find nearest tokens in embedding space (cosine similarity) |
 | Activations | `extract_activations` | Hidden states at specific layers and positions |
 | Activations | `compare_activations` | Cosine similarity + PCA across prompts |
@@ -56,6 +57,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 | Probing | `train_probe` | Train a classifier on activations |
 | Probing | `evaluate_probe` | Evaluate on held-out data |
 | Probing | `scan_probe_across_layers` | Find the crossover layer |
+| Probing | `probe_at_inference` | Run a trained probe during autoregressive generation |
 | Probing | `list_probes` | List all trained probes |
 | Steering | `compute_steering_vector` | Contrastive activation addition |
 | Steering | `steer_and_generate` | Generate with steering applied |
@@ -69,6 +71,16 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 | Residual | `logit_attribution` | Direct logit attribution: per-layer component contributions to predicted token |
 | Residual | `head_attribution` | Per-head logit attribution: which attention heads push toward the target token |
 | Residual | `top_neurons` | Per-neuron MLP identification: which neurons push toward the target token |
+| Attribution | `attribution_sweep` | Batch logit attribution across prompts with per-prompt summary |
+| Intervention | `component_intervention` | Zero/scale attention, FFN, or individual heads at a layer |
+| Neuron | `discover_neurons` | Auto-find neurons that discriminate between prompt groups |
+| Neuron | `analyze_neuron` | Profile specific neurons: activation stats across prompts |
+| Neuron | `neuron_trace` | Trace a neuron's influence through downstream layers |
+| Direction | `extract_direction` | Find directions via mean-diff, LDA, PCA, or probe weights |
+| Experiment | `create_experiment` | Create a named experiment for result persistence |
+| Experiment | `add_experiment_result` | Add a step result to an experiment |
+| Experiment | `get_experiment` | Retrieve an experiment and its results |
+| Experiment | `list_experiments` | List all saved experiments |
 | Comparison | `load_comparison_model` | Load a second model for side-by-side analysis |
 | Comparison | `compare_weights` | Frobenius norm + cosine sim per layer per component |
 | Comparison | `compare_representations` | Per-layer activation divergence across prompts |
@@ -108,6 +120,10 @@ Smoke tests use **SmolLM2-135M** for speed.
 | `language_transition_demo.py` | 17 tools -- flagship 15-step workflow (probing, steering, causal tracing) | gemma-3-4b-it |
 | `comparison_demo.py` | 8 tools -- two-model comparison (Gemma 3 vs TranslateGemma) | gemma-3-4b-it |
 | `deep_dive_demo.py` | 8 tools -- full interpretability pipeline (logit attribution → heads → neurons) | SmolLM2-135M |
+| `attribution_sweep_demo.py` | 3 tools -- batch attribution with prompt summary tables | SmolLM2-135M |
+| `track_race_demo.py` | 1 tool -- multi-candidate logit trajectory with crossing detection | SmolLM2-135M |
+| `intervention_demo.py` | 1 tool -- surgical component intervention (zero/scale attention, FFN) | SmolLM2-135M |
+| `experiment_demo.py` | 4 tools -- experiment persistence (create, add results, retrieve, list) | SmolLM2-135M |
 | `ablation_demo.py` | 4 tools -- layer ablation and activation patching | SmolLM2-135M |
 | `attention_demo.py` | 4 tools -- attention patterns and head entropy analysis | SmolLM2-135M |
 | `residual_stream_demo.py` | 4 tools -- residual decomposition and layer clustering | SmolLM2-135M |
@@ -170,7 +186,7 @@ src/chuk_mcp_lazarus/
 ├── steering_store.py    # SteeringVectorRegistry singleton
 ├── comparison_state.py  # ComparisonState singleton (2nd model)
 ├── resources.py         # MCP resources (4 resources)
-├── errors.py            # Error types + envelope helper (13 error types)
+├── errors.py            # Error types + envelope helper (16 error types)
 ├── _bootstrap.py        # Optional dependency stubs
 ├── _serialize.py        # MLX/NumPy -> JSON-safe
 ├── _generate.py         # Shared text generation
@@ -178,15 +194,20 @@ src/chuk_mcp_lazarus/
 ├── _extraction.py       # Shared activation extraction
 └── tools/
     ├── model_tools.py       # load_model, get_model_info
-    ├── generation_tools.py  # generate_text, predict_next_token, tokenize, logit_lens, track_token, embedding_neighbors
-    ├── activation_tools.py  # extract_activations, compare_activations
-    ├── attention_tools.py   # attention_pattern, attention_heads
-    ├── probe_tools.py       # train_probe, evaluate_probe, scan_probe_across_layers, list_probes
-    ├── steering_tools.py    # compute_steering_vector, steer_and_generate, list_steering_vectors
-    ├── ablation_tools.py    # ablate_layers, patch_activations
-    ├── causal_tools.py      # trace_token, full_causal_trace
-    ├── residual_tools.py    # residual_decomposition, layer_clustering, logit_attribution, head_attribution, top_neurons
-    └── comparison_tools.py  # load_comparison_model, compare_weights, compare_representations, compare_attention, compare_generations, unload_comparison_model
+    ├── generation_tools.py    # generate_text, predict_next_token, tokenize, logit_lens, track_token, track_race, embedding_neighbors
+    ├── activation_tools.py    # extract_activations, compare_activations
+    ├── attention_tools.py     # attention_pattern, attention_heads
+    ├── probe_tools.py         # train_probe, evaluate_probe, scan_probe_across_layers, probe_at_inference, list_probes
+    ├── steering_tools.py      # compute_steering_vector, steer_and_generate, list_steering_vectors
+    ├── ablation_tools.py      # ablate_layers, patch_activations
+    ├── causal_tools.py        # trace_token, full_causal_trace
+    ├── residual_tools.py      # residual_decomposition, layer_clustering, logit_attribution, head_attribution, top_neurons
+    ├── attribution_tools.py   # attribution_sweep (batch logit attribution with prompt summaries)
+    ├── intervention_tools.py  # component_intervention (zero/scale attention, FFN, heads)
+    ├── neuron_tools.py        # discover_neurons, analyze_neuron, neuron_trace
+    ├── direction_tools.py     # extract_direction
+    ├── experiment_tools.py    # create_experiment, add_experiment_result, get_experiment, list_experiments
+    └── comparison_tools.py    # load_comparison_model, compare_weights, compare_representations, compare_attention, compare_generations, unload_comparison_model
 ```
 
 ## Development

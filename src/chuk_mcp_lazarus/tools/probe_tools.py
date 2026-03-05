@@ -647,6 +647,249 @@ def _scan_probe_impl(
     return result.model_dump()
 
 
+# ---------------------------------------------------------------------------
+# Result models for probe_at_inference
+# ---------------------------------------------------------------------------
+
+
+class ProbeTokenEntry(BaseModel):
+    """Probe prediction for a single generated token."""
+
+    step: int
+    token: str
+    token_id: int
+    probe_prediction: str
+    probe_confidence: float
+    probe_probabilities: dict[str, float]
+
+
+class ProbeAtInferenceResult(BaseModel):
+    """Result from probe_at_inference."""
+
+    prompt: str
+    probe_name: str
+    probe_layer: int
+    generated_text: str
+    tokens_generated: int
+    per_token: list[ProbeTokenEntry]
+    overall_majority_class: str
+    overall_mean_confidence: float
+    class_distribution: dict[str, int]
+
+
+# ---------------------------------------------------------------------------
+# Tool: probe_at_inference
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(read_only_hint=True)
+async def probe_at_inference(
+    prompt: str,
+    probe_name: str,
+    max_tokens: int = 50,
+    temperature: float = 0.0,
+    token_position: int = -1,
+) -> dict:
+    """
+    Run a trained probe during autoregressive generation.
+
+    For each generated token, extracts the hidden state at the probe's
+    layer and runs the probe classifier. Returns per-token predictions,
+    class distribution, and overall confidence.
+
+    Useful for monitoring how the model's internal state evolves
+    token-by-token during generation (e.g. does a hallucination-type
+    probe fire consistently throughout a response?).
+
+    Args:
+        prompt:         Input text to continue generating from.
+        probe_name:     Name of a previously trained probe.
+        max_tokens:     Maximum tokens to generate (1–500).
+        temperature:    Sampling temperature (0.0 = greedy).
+        token_position: Token position to extract activation from (-1 = last).
+    """
+    state = ModelState.get()
+    if not state.is_loaded:
+        return make_error(
+            ToolError.MODEL_NOT_LOADED,
+            "Call load_model() first.",
+            "probe_at_inference",
+        )
+
+    registry = ProbeRegistry.get()
+    probe_data = registry.fetch(probe_name)
+    if probe_data is None:
+        return make_error(
+            ToolError.PROBE_NOT_FOUND,
+            f"Probe {probe_name!r} not found. Train it first.",
+            "probe_at_inference",
+        )
+
+    if max_tokens < 1 or max_tokens > 500:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            f"max_tokens must be 1–500, got {max_tokens}.",
+            "probe_at_inference",
+        )
+
+    try:
+        result = await asyncio.to_thread(
+            _probe_at_inference_impl,
+            state.model,
+            state.config,
+            state.tokenizer,
+            probe_data,
+            prompt,
+            max_tokens,
+            temperature,
+            token_position,
+        )
+        return result
+    except Exception as e:
+        logger.exception("probe_at_inference failed")
+        return make_error(ToolError.GENERATION_FAILED, str(e), "probe_at_inference")
+
+
+def _probe_at_inference_impl(
+    model: Any,
+    config: Any,
+    tokenizer: Any,
+    probe_data: tuple[Any, ProbeMetadata],
+    prompt: str,
+    max_tokens: int,
+    temperature: float,
+    token_position: int,
+) -> dict:
+    """Sync implementation of probe_at_inference."""
+    import mlx.core as mx
+
+    from chuk_lazarus.introspection.hooks import CaptureConfig, ModelHooks
+
+    clf, meta = probe_data
+    probe_layer = meta.layer
+    classes = meta.classes
+
+    # Tokenize the prompt
+    current_ids = list(tokenizer.encode(prompt, add_special_tokens=True))
+    eos_id = getattr(tokenizer, "eos_token_id", None)
+
+    generated_tokens: list[int] = []
+    per_token: list[ProbeTokenEntry] = []
+
+    for step in range(max_tokens):
+        input_ids = mx.array(current_ids)
+
+        # Forward pass with hidden state capture at probe layer
+        hooks = ModelHooks(model, model_config=config)
+        hooks.configure(
+            CaptureConfig(
+                layers=[probe_layer],
+                capture_hidden_states=True,
+            )
+        )
+        logits = hooks.forward(input_ids)
+        mx.eval(hooks.state.hidden_states)
+
+        # Get next token
+        if logits is not None:
+            if hasattr(logits, "logits"):
+                logits = logits.logits
+            if isinstance(logits, tuple):
+                logits = logits[0]
+            if logits.ndim == 3:
+                last_logits = logits[0, -1, :]
+            elif logits.ndim == 2:
+                last_logits = logits[-1, :]
+            else:
+                last_logits = logits
+
+            if temperature <= 0.0:
+                next_token_id = int(mx.argmax(last_logits).item())
+            else:
+                scaled = last_logits / temperature
+                probs = mx.softmax(scaled, axis=-1)
+                next_token_id = int(mx.random.categorical(probs).item())
+        else:
+            break
+
+        # Extract hidden state at probe layer
+        h = hooks.state.hidden_states.get(probe_layer)
+        if h is None:
+            break
+
+        # Extract activation at token_position
+        if h.ndim == 3:
+            act = h[0, token_position, :]
+        elif h.ndim == 2:
+            act = h[token_position, :]
+        else:
+            act = h
+
+        # Convert to numpy for sklearn
+        if hasattr(act, "_data"):
+            act_np = np.array(act._data, dtype=np.float32).reshape(1, -1)
+        elif hasattr(act, "tolist"):
+            act_np = np.array(act.tolist(), dtype=np.float32).reshape(1, -1)
+        else:
+            act_np = np.array(act, dtype=np.float32).reshape(1, -1)
+
+        # Run probe
+        probe_probs = clf.predict_proba(act_np)[0]
+        pred_idx = int(np.argmax(probe_probs))
+        pred_class = classes[pred_idx] if pred_idx < len(classes) else str(pred_idx)
+        confidence = float(probe_probs[pred_idx])
+
+        class_probs = {
+            classes[i] if i < len(classes) else str(i): round(float(probe_probs[i]), 6)
+            for i in range(len(probe_probs))
+        }
+
+        token_text = tokenizer.decode([next_token_id])
+
+        per_token.append(
+            ProbeTokenEntry(
+                step=step,
+                token=token_text,
+                token_id=next_token_id,
+                probe_prediction=pred_class,
+                probe_confidence=round(confidence, 6),
+                probe_probabilities=class_probs,
+            )
+        )
+
+        generated_tokens.append(next_token_id)
+        current_ids.append(next_token_id)
+
+        # Check EOS
+        if eos_id is not None and next_token_id == eos_id:
+            break
+
+    # Aggregate
+    generated_text = tokenizer.decode(generated_tokens) if generated_tokens else ""
+
+    class_dist: dict[str, int] = {}
+    confidences: list[float] = []
+    for entry in per_token:
+        class_dist[entry.probe_prediction] = class_dist.get(entry.probe_prediction, 0) + 1
+        confidences.append(entry.probe_confidence)
+
+    majority_class = max(class_dist, key=lambda k: class_dist[k]) if class_dist else ""
+    mean_conf = float(np.mean(confidences)) if confidences else 0.0
+
+    result = ProbeAtInferenceResult(
+        prompt=prompt,
+        probe_name=meta.name,
+        probe_layer=probe_layer,
+        generated_text=generated_text,
+        tokens_generated=len(generated_tokens),
+        per_token=per_token,
+        overall_majority_class=majority_class,
+        overall_mean_confidence=round(mean_conf, 6),
+        class_distribution=class_dist,
+    )
+    return result.model_dump()
+
+
 @mcp.tool(read_only_hint=True, idempotent_hint=True)
 async def list_probes() -> dict:
     """

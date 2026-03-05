@@ -116,6 +116,50 @@ class TrackTokenResult(BaseModel):
     peak_probability: float
 
 
+class CandidateLayerEntry(BaseModel):
+    """Per-layer probability and rank for one candidate token."""
+
+    layer: int
+    probability: float
+    rank: int
+    is_top1: bool
+
+
+class CandidateTrajectory(BaseModel):
+    """A single candidate token's trajectory across layers."""
+
+    token: str
+    token_id: int
+    layers: list[CandidateLayerEntry]
+    emergence_layer: int | None = Field(
+        None, description="First layer where this candidate is top-1."
+    )
+    peak_layer: int
+    peak_probability: float
+
+
+class CrossingEvent(BaseModel):
+    """A layer where the lead candidate changes."""
+
+    layer: int
+    previous_leader: str
+    new_leader: str
+    new_leader_probability: float
+
+
+class TrackRaceResult(BaseModel):
+    """Result from track_race."""
+
+    prompt: str
+    token_position: int
+    token_text: str
+    num_candidates: int
+    candidates: list[CandidateTrajectory]
+    crossings: list[CrossingEvent]
+    final_winner: str
+    final_probability: float
+
+
 class NeighborToken(BaseModel):
     """A token similar to the query in embedding space."""
 
@@ -428,8 +472,15 @@ def _logit_lens_impl(
     top_k: int,
     token_position: int,
 ) -> dict:
-    """Run logit lens analysis using ModelHooks.get_layer_logits."""
+    """Run logit lens analysis with calibrated norm+head projection.
+
+    Uses _get_lm_projection (handles tied-embedding models like Gemma 3)
+    and _norm_project (applies final_norm before projection) instead of
+    hooks.get_layer_logits which can use the wrong lm_head.
+    """
     from chuk_lazarus.introspection.hooks import CaptureConfig, ModelHooks
+
+    from .residual_tools import _get_lm_projection, _norm_project
 
     input_ids = mx.array(tokenizer.encode(prompt, add_special_tokens=True))
     num_tokens = input_ids.shape[-1]
@@ -450,19 +501,27 @@ def _logit_lens_impl(
     hooks.forward(input_ids)
     mx.eval(hooks.state.hidden_states)
 
+    # Calibrated projection: handles tied-embedding models correctly
+    lm_head = _get_lm_projection(model)
+    helper = ModelHooks(model, model_config=config)
+    final_norm = helper._get_final_norm()
+
     predictions = []
     for layer_idx in layers:
-        logits = hooks.get_layer_logits(layer_idx, normalize=True)
-        if logits is None:
+        h = hooks.state.hidden_states.get(layer_idx)
+        if h is None:
             continue
 
-        # Get logits at the target position
-        if logits.ndim == 3:
-            pos_logits = logits[0, token_position, :]
-        elif logits.ndim == 2:
-            pos_logits = logits[token_position, :]
+        # Extract hidden state at the target position
+        if h.ndim == 3:
+            vec = h[0, token_position, :]
+        elif h.ndim == 2:
+            vec = h[token_position, :]
         else:
-            pos_logits = logits
+            vec = h
+
+        # Project through final_norm + lm_head
+        pos_logits = _norm_project(final_norm, lm_head, vec)
 
         probs = mx.softmax(pos_logits, axis=-1)
         sorted_indices = mx.argsort(probs)[::-1][:top_k]
@@ -594,8 +653,13 @@ def _track_token_impl(
     target_token: str,
     token_position: int,
 ) -> dict:
-    """Track a specific token's probability across layers."""
+    """Track a specific token's probability across layers.
+
+    Uses calibrated norm+head projection (handles tied-embedding models).
+    """
     from chuk_lazarus.introspection.hooks import CaptureConfig, ModelHooks
+
+    from .residual_tools import _get_lm_projection, _norm_project
 
     input_ids = mx.array(tokenizer.encode(prompt, add_special_tokens=True))
     num_tokens = input_ids.shape[-1]
@@ -616,23 +680,31 @@ def _track_token_impl(
     hooks.forward(input_ids)
     mx.eval(hooks.state.hidden_states)
 
+    # Calibrated projection: handles tied-embedding models correctly
+    lm_head = _get_lm_projection(model)
+    helper = ModelHooks(model, model_config=config)
+    final_norm = helper._get_final_norm()
+
     entries = []
     emergence_layer = None
     peak_layer = layers[0]
     peak_probability = 0.0
 
     for layer_idx in layers:
-        logits = hooks.get_layer_logits(layer_idx, normalize=True)
-        if logits is None:
+        h = hooks.state.hidden_states.get(layer_idx)
+        if h is None:
             continue
 
-        # Get logits at the target position
-        if logits.ndim == 3:
-            pos_logits = logits[0, token_position, :]
-        elif logits.ndim == 2:
-            pos_logits = logits[token_position, :]
+        # Extract hidden state at the target position
+        if h.ndim == 3:
+            vec = h[0, token_position, :]
+        elif h.ndim == 2:
+            vec = h[token_position, :]
         else:
-            pos_logits = logits
+            vec = h
+
+        # Project through final_norm + lm_head
+        pos_logits = _norm_project(final_norm, lm_head, vec)
 
         probs = mx.softmax(pos_logits, axis=-1)
 
@@ -821,3 +893,274 @@ def _embedding_neighbors_impl(
         self_similarity=round(self_sim, 6),
     )
     return result.model_dump()
+
+
+# ---------------------------------------------------------------------------
+# Tool: track_race
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def track_race(
+    prompt: str,
+    candidates: list[str],
+    layers: list[int] | None = None,
+    token_position: int = -1,
+) -> dict:
+    """
+    Track multiple candidate tokens' probabilities across layers.
+
+    Runs a single forward pass and projects hidden states at each layer
+    to vocabulary space, then extracts probability and rank for each
+    candidate token. Detects "crossings" where the leading candidate
+    changes. Useful for comparing how competing predictions evolve
+    through the model (e.g. "Canberra" vs "Sydney" vs "Melbourne").
+
+    Args:
+        prompt:         Input text.
+        candidates:     List of candidate tokens to race (2–20).
+        layers:         Layer indices to analyze. None = sample ~12 layers.
+        token_position: Which input token to analyze (-1 = last, default).
+    """
+    state = ModelState.get()
+    if not state.is_loaded:
+        return make_error(
+            ToolError.MODEL_NOT_LOADED,
+            "Call load_model() first.",
+            "track_race",
+        )
+
+    if len(candidates) < 2:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            "At least 2 candidate tokens required.",
+            "track_race",
+        )
+
+    if len(candidates) > 20:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            "Maximum 20 candidates allowed.",
+            "track_race",
+        )
+
+    num_layers = state.metadata.num_layers
+
+    if layers is None:
+        if num_layers <= 12:
+            layers = list(range(num_layers))
+        else:
+            step = max(1, num_layers // 12)
+            layers = list(range(0, num_layers, step))
+            if (num_layers - 1) not in layers:
+                layers.append(num_layers - 1)
+
+    out_of_range = [lay for lay in layers if lay < 0 or lay >= num_layers]
+    if out_of_range:
+        return make_error(
+            ToolError.LAYER_OUT_OF_RANGE,
+            f"Layers {out_of_range} out of range [0, {num_layers - 1}].",
+            "track_race",
+        )
+
+    try:
+        result = await asyncio.to_thread(
+            _track_race_impl,
+            state.model,
+            state.config,
+            state.tokenizer,
+            prompt,
+            candidates,
+            sorted(layers),
+            token_position,
+        )
+        return result
+    except ValueError as exc:
+        return make_error(ToolError.INVALID_INPUT, str(exc), "track_race")
+    except Exception as e:
+        logger.exception("track_race failed")
+        return make_error(ToolError.EXTRACTION_FAILED, str(e), "track_race")
+
+
+def _track_race_impl(
+    model: Any,
+    config: Any,
+    tokenizer: Any,
+    prompt: str,
+    candidates: list[str],
+    layers: list[int],
+    token_position: int,
+) -> dict:
+    """Track multiple tokens' probabilities across layers.
+
+    Uses calibrated norm+head projection (handles tied-embedding models).
+    """
+    from chuk_lazarus.introspection.hooks import CaptureConfig, ModelHooks
+
+    from .residual_tools import _get_lm_projection, _norm_project
+
+    input_ids = mx.array(tokenizer.encode(prompt, add_special_tokens=True))
+    num_tokens = input_ids.shape[-1]
+
+    # Resolve token text at position
+    ids_list = to_pylist(input_ids)
+    pos = token_position if token_position >= 0 else num_tokens + token_position
+    pos = max(0, min(pos, num_tokens - 1))
+    token_text = tokenizer.decode([ids_list[pos]])
+
+    # Forward pass — capture hidden states at all requested layers
+    hooks = ModelHooks(model, model_config=config)
+    hooks.configure(
+        CaptureConfig(
+            layers=layers,
+            capture_hidden_states=True,
+        )
+    )
+    hooks.forward(input_ids)
+    mx.eval(hooks.state.hidden_states)
+
+    # Calibrated projection
+    lm_head = _get_lm_projection(model)
+    helper = ModelHooks(model, model_config=config)
+    final_norm = helper._get_final_norm()
+
+    # Get logits from last layer for candidate resolution
+    last_layer = layers[-1]
+    h_last = hooks.state.hidden_states.get(last_layer)
+    if h_last is None:
+        raise ValueError(f"No hidden state captured at layer {last_layer}")
+    if h_last.ndim == 3:
+        vec_last = h_last[0, token_position, :]
+    elif h_last.ndim == 2:
+        vec_last = h_last[token_position, :]
+    else:
+        vec_last = h_last
+    full_logits = _norm_project(final_norm, lm_head, vec_last)
+
+    # Resolve all candidate tokens
+    resolved: list[tuple[int, str]] = []
+    for cand in candidates:
+        cand_ids: list[int] = []
+        for variant in (cand, " " + cand):
+            ids = tokenizer.encode(variant, add_special_tokens=False)
+            if ids:
+                cand_ids.append(ids[0])
+        # Deduplicate
+        seen: set[int] = set()
+        unique: list[int] = []
+        for c in cand_ids:
+            if c not in seen:
+                seen.add(c)
+                unique.append(c)
+        if not unique:
+            raise ValueError(f"Could not encode candidate token {cand!r}")
+        tid = max(unique, key=lambda t: float(full_logits[t].item()))
+        resolved.append((tid, tokenizer.decode([tid])))
+
+    # Track across layers
+    trajectories: list[dict] = []
+    for tid, tok_text in resolved:
+        trajectories.append(
+            {
+                "token": tok_text,
+                "token_id": tid,
+                "entries": [],
+                "emergence_layer": None,
+                "peak_layer": layers[0],
+                "peak_probability": 0.0,
+            }
+        )
+
+    for layer_idx in layers:
+        h = hooks.state.hidden_states.get(layer_idx)
+        if h is None:
+            continue
+
+        if h.ndim == 3:
+            vec = h[0, token_position, :]
+        elif h.ndim == 2:
+            vec = h[token_position, :]
+        else:
+            vec = h
+
+        pos_logits = _norm_project(final_norm, lm_head, vec)
+        probs = mx.softmax(pos_logits, axis=-1)
+
+        for i, (tid, _) in enumerate(resolved):
+            prob = float(probs[tid])
+            rank = int(mx.sum(probs > probs[tid]))
+            is_top1 = rank == 0
+
+            if is_top1 and trajectories[i]["emergence_layer"] is None:
+                trajectories[i]["emergence_layer"] = layer_idx
+
+            if prob > trajectories[i]["peak_probability"]:
+                trajectories[i]["peak_probability"] = prob
+                trajectories[i]["peak_layer"] = layer_idx
+
+            trajectories[i]["entries"].append(
+                CandidateLayerEntry(
+                    layer=layer_idx,
+                    probability=round(prob, 6),
+                    rank=rank,
+                    is_top1=is_top1,
+                )
+            )
+
+    # Detect crossings
+    crossings: list[CrossingEvent] = []
+    prev_leader: str | None = None
+    for layer_idx in layers:
+        # Find who is top-1 at this layer
+        best_prob = -1.0
+        best_tok = ""
+        for traj in trajectories:
+            for entry in traj["entries"]:
+                if entry.layer == layer_idx and entry.probability > best_prob:
+                    best_prob = entry.probability
+                    best_tok = traj["token"]
+
+        if prev_leader is not None and best_tok != prev_leader:
+            crossings.append(
+                CrossingEvent(
+                    layer=layer_idx,
+                    previous_leader=prev_leader,
+                    new_leader=best_tok,
+                    new_leader_probability=round(best_prob, 6),
+                )
+            )
+        prev_leader = best_tok
+
+    # Build candidate trajectories
+    candidate_results = []
+    for traj in trajectories:
+        candidate_results.append(
+            CandidateTrajectory(
+                token=traj["token"],
+                token_id=traj["token_id"],
+                layers=traj["entries"],
+                emergence_layer=traj["emergence_layer"],
+                peak_layer=traj["peak_layer"],
+                peak_probability=round(traj["peak_probability"], 6),
+            )
+        )
+
+    # Final winner
+    final_winner = ""
+    final_prob = 0.0
+    for traj in trajectories:
+        if traj["entries"] and traj["entries"][-1].probability > final_prob:
+            final_prob = traj["entries"][-1].probability
+            final_winner = traj["token"]
+
+    result = TrackRaceResult(
+        prompt=prompt,
+        token_position=token_position,
+        token_text=token_text,
+        num_candidates=len(candidates),
+        candidates=candidate_results,
+        crossings=crossings,
+        final_winner=final_winner,
+        final_probability=round(final_prob, 6),
+    )
+    return result.model_dump(exclude_none=True)

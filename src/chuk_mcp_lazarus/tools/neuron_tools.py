@@ -407,3 +407,344 @@ def _analyze_neuron_impl(
         per_prompt_activations=per_prompt,
     )
     return result.model_dump(exclude_none=True)
+
+
+# ---------------------------------------------------------------------------
+# Result models for neuron_trace
+# ---------------------------------------------------------------------------
+
+
+class NeuronInfo(BaseModel):
+    """Source neuron information."""
+
+    layer: int
+    neuron_index: int
+    activation: float
+    output_direction_norm: float
+    top_token: str
+
+
+class AlignedHead(BaseModel):
+    """Attention head aligned with the neuron direction."""
+
+    head: int
+    alignment: float
+
+
+class TraceLayerEntry(BaseModel):
+    """Alignment of neuron direction with a downstream layer's components."""
+
+    layer: int
+    residual_alignment: float = Field(
+        ..., description="Cosine sim of neuron direction with residual stream."
+    )
+    attention_alignment: float | None = Field(
+        None, description="Cosine sim with attention output (None if unavailable)."
+    )
+    ffn_alignment: float | None = Field(
+        None, description="Cosine sim with FFN output (None if unavailable)."
+    )
+    residual_projection: float = Field(
+        ..., description="Dot product of neuron direction with residual stream."
+    )
+    top_aligned_heads: list[AlignedHead] | None = None
+
+
+class NeuronTraceResult(BaseModel):
+    """Result from neuron_trace."""
+
+    prompt: str
+    token_position: int
+    token_text: str
+    neuron: NeuronInfo
+    num_trace_layers: int
+    trace: list[TraceLayerEntry]
+    summary: dict[str, Any]
+
+
+# ---------------------------------------------------------------------------
+# Tool: neuron_trace
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def neuron_trace(
+    prompt: str,
+    layer: int,
+    neuron_index: int,
+    target_layers: list[int] | None = None,
+    token_position: int = -1,
+    top_k_heads: int = 5,
+) -> dict:
+    """
+    Trace a neuron's influence through downstream layers.
+
+    Computes the output direction of a specific FFN neuron at the source
+    layer, then measures how aligned that direction is with the residual
+    stream, attention output, and FFN output at subsequent layers.
+
+    Useful for understanding how a neuron's signal propagates: which
+    attention heads at layer N read from neuron X's output at layer M?
+
+    Args:
+        prompt:         Input text.
+        layer:          Source layer (where the neuron lives).
+        neuron_index:   Index of the FFN neuron.
+        target_layers:  Downstream layers to trace through. None = auto.
+        token_position: Token position (-1 = last).
+        top_k_heads:    Number of top-aligned heads to return (1–64).
+    """
+    state = ModelState.get()
+    if not state.is_loaded:
+        return make_error(
+            ToolError.MODEL_NOT_LOADED,
+            "Call load_model() first.",
+            "neuron_trace",
+        )
+
+    num_layers = state.metadata.num_layers
+    intermediate_size = state.metadata.intermediate_size
+
+    if layer < 0 or layer >= num_layers:
+        return make_error(
+            ToolError.LAYER_OUT_OF_RANGE,
+            f"Layer {layer} out of range [0, {num_layers - 1}].",
+            "neuron_trace",
+        )
+
+    if neuron_index < 0 or neuron_index >= intermediate_size:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            f"neuron_index {neuron_index} out of range [0, {intermediate_size - 1}].",
+            "neuron_trace",
+        )
+
+    if target_layers is None:
+        target_layers = list(range(layer + 1, min(layer + 10, num_layers)))
+
+    if not target_layers:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            "No target layers to trace (source layer may be the last layer).",
+            "neuron_trace",
+        )
+
+    invalid = [t for t in target_layers if t <= layer]
+    if invalid:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            f"Target layers {invalid} must be > source layer {layer}.",
+            "neuron_trace",
+        )
+
+    out_of_range = [t for t in target_layers if t >= num_layers]
+    if out_of_range:
+        return make_error(
+            ToolError.LAYER_OUT_OF_RANGE,
+            f"Target layers {out_of_range} out of range [0, {num_layers - 1}].",
+            "neuron_trace",
+        )
+
+    if top_k_heads < 1 or top_k_heads > 64:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            f"top_k_heads must be 1–64, got {top_k_heads}.",
+            "neuron_trace",
+        )
+
+    try:
+        result = await asyncio.to_thread(
+            _neuron_trace_impl,
+            state.model,
+            state.config,
+            state.tokenizer,
+            state.metadata,
+            prompt,
+            layer,
+            neuron_index,
+            sorted(target_layers),
+            token_position,
+            top_k_heads,
+        )
+        return result
+    except ValueError as exc:
+        return make_error(ToolError.INVALID_INPUT, str(exc), "neuron_trace")
+    except Exception as e:
+        logger.exception("neuron_trace failed")
+        return make_error(ToolError.EXTRACTION_FAILED, str(e), "neuron_trace")
+
+
+def _cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
+    """Cosine similarity clamped to [-1, 1]."""
+    norm_a = float(np.linalg.norm(a))
+    norm_b = float(np.linalg.norm(b))
+    if norm_a < 1e-8 or norm_b < 1e-8:
+        return 0.0
+    sim = float(np.dot(a, b) / (norm_a * norm_b))
+    return max(-1.0, min(1.0, sim))
+
+
+def _neuron_trace_impl(
+    model: Any,
+    config: Any,
+    tokenizer: Any,
+    metadata: Any,
+    prompt: str,
+    layer: int,
+    neuron_index: int,
+    target_layers: list[int],
+    token_position: int,
+    top_k_heads: int,
+) -> dict:
+    """Sync implementation of neuron_trace."""
+    import mlx.core as mx
+
+    from .residual_tools import (
+        _extract_position,
+        _get_lm_projection,
+        _project_to_logits,
+        _run_decomposition_forward,
+    )
+
+    # Tokenize
+    input_ids = mx.array(tokenizer.encode(prompt, add_special_tokens=True))
+    num_tokens = input_ids.shape[-1]
+    ids_list = input_ids.tolist() if hasattr(input_ids, "tolist") else list(range(num_tokens))
+    pos = token_position if token_position >= 0 else num_tokens + token_position
+    pos = max(0, min(pos, num_tokens - 1))
+    if isinstance(ids_list, list) and ids_list:
+        tok_text = tokenizer.decode([ids_list[pos] if isinstance(ids_list[pos], int) else 0])
+    else:
+        tok_text = ""
+
+    # Run decomposition forward to capture all needed layers
+    all_layers = sorted(set([layer] + target_layers))
+    decomp = _run_decomposition_forward(model, config, input_ids, all_layers)
+
+    # Get the MLP at source layer to extract neuron direction
+    from chuk_lazarus.introspection.hooks import ModelHooks
+
+    helper = ModelHooks(model, model_config=config)
+    model_layers = helper._get_layers()
+    source_layer = model_layers[layer]
+    mlp = source_layer.mlp
+
+    # Get hidden state entering the source layer's MLP
+    # For standard arch: prev_hidden → input_layernorm → self_attn → post_attention_layernorm → MLP
+    # We need the FFN input. We have attn_outputs and prev_hidden
+    prev_h = decomp["prev_hidden"].get(layer)
+    attn_out = decomp["attn_outputs"].get(layer)
+
+    if prev_h is not None and attn_out is not None:
+        # FFN input = prev_h + attn_out (then post_attention_layernorm applied)
+        ffn_input_pre = _extract_position(prev_h, token_position) + _extract_position(
+            attn_out, token_position
+        )
+    elif prev_h is not None:
+        ffn_input_pre = _extract_position(prev_h, token_position)
+    else:
+        # Fallback: use hidden state at previous layer or embeddings
+        h_prev = decomp["hidden_states"].get(layer - 1) if layer > 0 else decomp["embeddings"]
+        ffn_input_pre = _extract_position(h_prev, token_position)
+
+    # Apply post_attention_layernorm to get actual FFN input
+    ffn_input_normed = source_layer.post_attention_layernorm(ffn_input_pre.reshape(1, -1))[0]
+
+    # Compute neuron activation via SwiGLU: silu(gate * input) * up * input
+    gate_out = mlp.gate_proj(ffn_input_normed.reshape(1, -1))[0]
+    up_out = mlp.up_proj(ffn_input_normed.reshape(1, -1))[0]
+
+    # SwiGLU activation at neuron_index
+    gate_val = gate_out[neuron_index]
+    up_val = up_out[neuron_index]
+    silu_val = gate_val / (1.0 + mx.array(math.exp(-float(gate_val))))  # silu approximation
+    activation = float((silu_val * up_val).item())
+
+    # Neuron output direction = down_proj weight column
+    down_weight = mlp.down_proj.weight  # [hidden_dim, intermediate_size]
+    direction = down_weight[:, neuron_index]
+    mx.eval(direction)
+
+    # Convert to numpy for cosine computations
+    dir_np = np.array(direction.tolist(), dtype=np.float32)
+    dir_norm = float(np.linalg.norm(dir_np))
+
+    # Top token from neuron direction
+    lm_head = _get_lm_projection(model)
+    dir_logits = _project_to_logits(lm_head, direction)
+    mx.eval(dir_logits)
+    top_token_id = int(mx.argmax(dir_logits).item())
+    top_token = tokenizer.decode([top_token_id])
+
+    neuron_info = NeuronInfo(
+        layer=layer,
+        neuron_index=neuron_index,
+        activation=round(activation, 6),
+        output_direction_norm=round(dir_norm, 6),
+        top_token=top_token,
+    )
+
+    # Trace through target layers
+    trace: list[TraceLayerEntry] = []
+    max_residual_alignment = 0.0
+    max_alignment_layer = target_layers[0]
+
+    for tl in target_layers:
+        h_state = decomp["hidden_states"].get(tl)
+        attn_state = decomp["attn_outputs"].get(tl)
+        ffn_state = decomp["ffn_outputs"].get(tl)
+
+        if h_state is None:
+            continue
+
+        h_vec = _extract_position(h_state, token_position)
+        h_np = np.array(h_vec.tolist(), dtype=np.float32)
+
+        res_align = _cosine_sim(dir_np, h_np)
+        res_proj = float(np.dot(dir_np / (dir_norm + 1e-8), h_np))
+
+        attn_align = None
+        if attn_state is not None:
+            attn_vec = _extract_position(attn_state, token_position)
+            attn_np = np.array(attn_vec.tolist(), dtype=np.float32)
+            attn_align = _cosine_sim(dir_np, attn_np)
+
+        ffn_align = None
+        if ffn_state is not None:
+            ffn_vec = _extract_position(ffn_state, token_position)
+            ffn_np = np.array(ffn_vec.tolist(), dtype=np.float32)
+            ffn_align = _cosine_sim(dir_np, ffn_np)
+
+        if abs(res_align) > abs(max_residual_alignment):
+            max_residual_alignment = res_align
+            max_alignment_layer = tl
+
+        trace.append(
+            TraceLayerEntry(
+                layer=tl,
+                residual_alignment=round(res_align, 6),
+                attention_alignment=round(attn_align, 6) if attn_align is not None else None,
+                ffn_alignment=round(ffn_align, 6) if ffn_align is not None else None,
+                residual_projection=round(res_proj, 6),
+                top_aligned_heads=None,  # Head-level tracing requires per-head decomposition
+            )
+        )
+
+    summary = {
+        "max_residual_alignment": round(max_residual_alignment, 6),
+        "max_alignment_layer": max_alignment_layer,
+        "num_trace_layers": len(trace),
+        "neuron_activation": round(activation, 6),
+        "top_token": top_token,
+    }
+
+    result = NeuronTraceResult(
+        prompt=prompt,
+        token_position=token_position,
+        token_text=tok_text,
+        neuron=neuron_info,
+        num_trace_layers=len(trace),
+        trace=trace,
+        summary=summary,
+    )
+    return result.model_dump(exclude_none=True)

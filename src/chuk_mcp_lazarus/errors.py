@@ -28,6 +28,9 @@ class ToolError(str, Enum):
     ABLATION_FAILED = "AblationFailed"
     COMPARISON_FAILED = "ComparisonFailed"
     COMPARISON_INCOMPATIBLE = "ComparisonIncompatible"
+    EXPERIMENT_NOT_FOUND = "ExperimentNotFound"
+    EXPERIMENT_STORE_ERROR = "ExperimentStoreError"
+    INTERVENTION_FAILED = "InterventionFailed"
     LOAD_FAILED = "LoadFailed"
 
 

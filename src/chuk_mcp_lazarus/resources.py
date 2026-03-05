@@ -9,6 +9,7 @@ modify state (loading models, training probes, computing vectors).
 from __future__ import annotations
 
 from .comparison_state import ComparisonState
+from .experiment_store import ExperimentStore
 from .model_state import ModelState
 from .probe_store import ProbeRegistry
 from .server import mcp
@@ -63,3 +64,14 @@ def comparison_state_resource() -> dict:
     if not comp.is_loaded:
         return {"loaded": False}
     return {"loaded": True, **comp.metadata.model_dump()}
+
+
+@mcp.resource("experiments://store", mime_type="application/json")
+def experiments_store_resource() -> dict:
+    """All experiments and their step counts.
+
+    Returns a list of experiment summaries: experiment_id, name,
+    model_id, created_at, description, tags, num_steps. Updates
+    as experiments are created or results are added.
+    """
+    return ExperimentStore.get().list_experiments()
