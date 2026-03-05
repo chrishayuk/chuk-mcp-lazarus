@@ -31,6 +31,7 @@ class ToolError(str, Enum):
     EXPERIMENT_NOT_FOUND = "ExperimentNotFound"
     EXPERIMENT_STORE_ERROR = "ExperimentStoreError"
     INTERVENTION_FAILED = "InterventionFailed"
+    GEOMETRY_FAILED = "GeometryFailed"
     LOAD_FAILED = "LoadFailed"
 
 

@@ -37,7 +37,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 }
 ```
 
-## Tools (46)
+## Tools (51)
 
 | Group | Tool | Purpose |
 |-------|------|---------|
@@ -87,6 +87,11 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 | Comparison | `compare_attention` | Per-head JS divergence in attention patterns |
 | Comparison | `compare_generations` | Side-by-side text output from both models |
 | Comparison | `unload_comparison_model` | Free VRAM from comparison model |
+| Geometry | `token_space` | Angles between token unembed vectors and residual stream at a layer |
+| Geometry | `direction_angles` | Pairwise angles between any directions (tokens, neurons, heads, residual, FFN, attention, steering vectors) |
+| Geometry | `subspace_decomposition` | Decompose a vector into basis direction components + orthogonal residual |
+| Geometry | `residual_trajectory` | Track residual rotation through layers by angles to reference tokens |
+| Geometry | `feature_dimensionality` | PCA spectrum + classification-by-dimension for a feature |
 
 ## Resources (4)
 
@@ -186,7 +191,7 @@ src/chuk_mcp_lazarus/
 ├── steering_store.py    # SteeringVectorRegistry singleton
 ├── comparison_state.py  # ComparisonState singleton (2nd model)
 ├── resources.py         # MCP resources (4 resources)
-├── errors.py            # Error types + envelope helper (16 error types)
+├── errors.py            # Error types + envelope helper (17 error types)
 ├── _bootstrap.py        # Optional dependency stubs
 ├── _serialize.py        # MLX/NumPy -> JSON-safe
 ├── _generate.py         # Shared text generation
@@ -207,7 +212,14 @@ src/chuk_mcp_lazarus/
     ├── neuron_tools.py        # discover_neurons, analyze_neuron, neuron_trace
     ├── direction_tools.py     # extract_direction
     ├── experiment_tools.py    # create_experiment, add_experiment_result, get_experiment, list_experiments
-    └── comparison_tools.py    # load_comparison_model, compare_weights, compare_representations, compare_attention, compare_generations, unload_comparison_model
+    ├── comparison_tools.py    # load_comparison_model, compare_weights, compare_representations, compare_attention, compare_generations, unload_comparison_model
+    └── geometry/              # Geometry tools (per-tool subpackage)
+        ├── _helpers.py            # Shared enums, math, direction extraction
+        ├── token_space.py         # token_space
+        ├── direction_angles.py    # direction_angles
+        ├── subspace_decomposition.py  # subspace_decomposition
+        ├── residual_trajectory.py # residual_trajectory
+        └── feature_dimensionality.py  # feature_dimensionality
 ```
 
 ## Development

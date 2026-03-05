@@ -13,25 +13,32 @@ tools we need to build, and the chuk-lazarus backend that supports them.
 
 ## The Gap: What We Have vs What We Need
 
-### What we have (34 tools)
-Comprehensive layer-level and component-level observation and intervention.
-We can see what each layer produces (`logit_lens`, `extract_activations`),
-how layers relate (`compare_activations`, `attention_heads`), whether
-features are linearly decodable (`scan_probe_across_layers`), what happens
-when we remove or modify layers (`ablate_layers`, `steer_and_generate`),
-trace causal circuits (`trace_token`, `full_causal_trace`), decompose the
-residual stream (`residual_decomposition`, `logit_attribution`), drill into
-specific components (`head_attribution`, `top_neurons`), and analyze
-vocabulary geometry (`embedding_neighbors`).
+### What we have (46 tools)
+Comprehensive layer-level and component-level observation, intervention,
+and automated analysis. We can see what each layer produces (`logit_lens`,
+`extract_activations`), how layers relate (`compare_activations`,
+`attention_heads`), whether features are linearly decodable
+(`scan_probe_across_layers`), what happens when we remove or modify
+layers (`ablate_layers`, `steer_and_generate`), trace causal circuits
+(`trace_token`, `full_causal_trace`), decompose the residual stream
+(`residual_decomposition`, `logit_attribution`), drill into specific
+components (`head_attribution`, `top_neurons`), analyze vocabulary
+geometry (`embedding_neighbors`), extract directions via 5 methods
+(`extract_direction`), auto-discover discriminative neurons
+(`discover_neurons`, `analyze_neuron`), trace neuron influence through
+downstream layers (`neuron_trace`), perform surgical component
+interventions (`component_intervention`), race multiple candidate tokens
+across layers (`track_race`), run batch attribution with per-prompt
+summaries (`attribution_sweep`), monitor probes during generation
+(`probe_at_inference`), and persist experiment results across sessions
+(`create_experiment`, `get_experiment`).
 
 ### What's missing for revolutionary work
-1. **Multiple direction methods** — We only have mean-difference
-   steering vectors. LDA, PCA, and probe-weight directions capture
-   different aspects of the same feature.
-2. **Automated neuron discovery** — `top_neurons` identifies neurons
-   for a specific prediction, but we can't auto-discover neurons that
-   discriminate between prompt groups (e.g. which neurons fire for
-   French vs English).
+1. ~~**Multiple direction methods**~~ — ✅ Implemented. `extract_direction`
+   supports mean-diff, LDA, PCA, and probe-weight methods.
+2. ~~**Automated neuron discovery**~~ — ✅ Implemented. `discover_neurons`
+   auto-finds discriminative neurons; `analyze_neuron` profiles them;
+   `neuron_trace` follows influence through downstream layers.
 3. **Confidence geometry** — We can't measure whether the model
    "knows that it knows" something.
 4. **External memory** — Runtime knowledge editing without fine-tuning.
@@ -48,8 +55,14 @@ Some capabilities are now exposed as MCP tools; others remain unexposed:
 | Per-head attribution | ✅ Exposed | `head_attribution` |
 | Per-neuron identification | ✅ Exposed | `top_neurons` |
 | Embedding neighbors | ✅ Exposed | `embedding_neighbors` |
-| Neuron group discovery | Not yet | `NeuronAnalysisService` in `introspection/steering/neuron_service.py` |
-| Direction extraction (5 methods) | Not yet | `DirectionExtractor` in `introspection/circuit/directions.py` |
+| Neuron group discovery | ✅ Exposed | `discover_neurons`, `analyze_neuron` |
+| Neuron influence tracing | ✅ Exposed | `neuron_trace` |
+| Direction extraction (5 methods) | ✅ Exposed | `extract_direction` (mean-diff, LDA, PCA, probe, random) |
+| Component intervention | ✅ Exposed | `component_intervention` (zero/scale attention, FFN, heads) |
+| Multi-candidate logit racing | ✅ Exposed | `track_race` |
+| Batch attribution | ✅ Exposed | `attribution_sweep` (with per-prompt summaries) |
+| Probe at inference | ✅ Exposed | `probe_at_inference` |
+| Experiment persistence | ✅ Exposed | `create_experiment`, `add_experiment_result`, `get_experiment`, `list_experiments` |
 | Confidence geometry | Not yet | `UncertaintyAnalysis` in `introspection/models/uncertainty.py` |
 | Circuit geometry (PCA, probes) | Not yet | `GeometryAnalyzer` in `introspection/circuit/geometry.py` |
 | External memory injection | Not yet | `ExternalMemory` in `introspection/external_memory.py` |
@@ -94,14 +107,14 @@ when asked about France's capital"):
 `logit_lens`, `track_token`, `full_causal_trace`, `trace_token`,
 `residual_decomposition`, `logit_attribution`, `head_attribution`,
 `top_neurons`, `attention_pattern`, `attention_heads`, `ablate_layers`,
-`patch_activations`, `extract_activations`
+`patch_activations`, `extract_activations`, `discover_neurons`,
+`analyze_neuron`, `neuron_trace`, `component_intervention`,
+`attribution_sweep`, `create_experiment`
 
 ### Tools still needed
 
-| Tool | Purpose | Backend |
-|------|---------|---------|
-| `discover_neurons` | Find discriminative neurons at a layer | `NeuronAnalysisService.auto_discover_neurons()` |
-| `analyze_neuron` | Profile a specific neuron's behavior | `NeuronAnalysisService.analyze_neurons()` |
+**None.** All tools required for this experiment are implemented. An agent
+can now run fully autonomous circuit discovery using the tool chain above.
 
 ---
 
@@ -137,13 +150,14 @@ or harmful association, an agent could patch it in real time.
 ### Tools available today
 `generate_text`, `track_token`, `trace_token`, `logit_lens`,
 `logit_attribution`, `top_neurons`, `ablate_layers`,
-`compute_steering_vector`
+`compute_steering_vector`, `extract_direction`,
+`component_intervention`, `discover_neurons`, `neuron_trace`,
+`attribution_sweep`, `create_experiment`
 
 ### Tools still needed
 
 | Tool | Purpose | Backend |
 |------|---------|---------|
-| `extract_direction` | Find correction direction via multiple methods | `DirectionExtractor.extract_direction()` |
 | `inject_fact` | Add fact to external memory for runtime injection | `ExternalMemory.add_facts()` |
 | `query_with_memory` | Generate with external memory active | `ExternalMemory.query()` |
 
@@ -197,14 +211,14 @@ the feature lives in (directions), how many neurons encode it
 `scan_probe_across_layers`, `logit_lens`, `track_token`,
 `trace_token`, `residual_decomposition`, `logit_attribution`,
 `head_attribution`, `top_neurons`, `layer_clustering`,
-`ablate_layers`, `extract_activations`, `attention_heads`
+`ablate_layers`, `extract_activations`, `attention_heads`,
+`extract_direction`, `discover_neurons`, `analyze_neuron`,
+`neuron_trace`, `attribution_sweep`, `create_experiment`
 
 ### Tools still needed
 
-| Tool | Purpose | Backend |
-|------|---------|---------|
-| `extract_direction` | Direction via diff-means, LDA, PCA, probe weights | `DirectionExtractor` |
-| `discover_neurons` | Find feature-encoding neurons per layer | `NeuronAnalysisService` |
+**None.** All tools required for this experiment are implemented. Full
+multi-method computational stratigraphy can be run and persisted.
 
 ---
 
@@ -248,14 +262,14 @@ Using two models (base + fine-tuned):
 `compare_generations`, `compare_weights`, `compare_representations`,
 `compare_attention`, `scan_probe_across_layers`, `logit_lens`,
 `track_token`, `trace_token`, `logit_attribution`, `head_attribution`,
-`top_neurons`
+`top_neurons`, `extract_direction`, `discover_neurons`,
+`analyze_neuron`, `neuron_trace`, `attribution_sweep`,
+`track_race`, `create_experiment`
 
 ### Tools still needed
 
-| Tool | Purpose | Backend |
-|------|---------|---------|
-| `extract_direction` | Compare feature directions across models | `DirectionExtractor` |
-| `discover_neurons` | Compare discriminative neurons across models | `NeuronAnalysisService` |
+**None.** All tools required for this experiment are implemented. Full
+mechanistic fine-tuning analysis can be run across both models.
 
 ---
 
@@ -293,16 +307,16 @@ fundamental about what self-knowledge means for neural networks.
 ### Tools available today
 `scan_probe_across_layers`, `compute_steering_vector`,
 `steer_and_generate`, `logit_lens`, `track_token`,
-`extract_activations`, `logit_attribution`, `top_neurons`
+`extract_activations`, `logit_attribution`, `top_neurons`,
+`extract_direction`, `discover_neurons`, `analyze_neuron`,
+`probe_at_inference`, `attribution_sweep`, `create_experiment`
 
 ### Tools still needed
 
 | Tool | Purpose | Backend |
 |------|---------|---------|
-| `extract_direction` | Find the "certainty" direction in activation space | `DirectionExtractor` |
 | `measure_confidence` | Geometric uncertainty analysis | `UncertaintyAnalysis` |
 | `detect_format_gate` | Find where model decides CoT vs direct | `MetacognitiveResult` |
-| `discover_neurons` | Find neurons encoding uncertainty | `NeuronAnalysisService` |
 
 ---
 
@@ -334,14 +348,15 @@ about how neural networks learn.
 `scan_probe_across_layers`, `logit_lens`, `track_token`,
 `attention_heads`, `ablate_layers`, `extract_activations`,
 `compare_activations`, `residual_decomposition`, `layer_clustering`,
-`logit_attribution`, `head_attribution`, `top_neurons`
+`logit_attribution`, `head_attribution`, `top_neurons`,
+`extract_direction`, `discover_neurons`, `analyze_neuron`,
+`neuron_trace`, `attribution_sweep`, `track_race`,
+`create_experiment`
 
 ### Tools still needed
 
-| Tool | Purpose | Backend |
-|------|---------|---------|
-| `extract_direction` | Compare feature directions across architectures | `DirectionExtractor` |
-| `discover_neurons` | Compare neuron counts per feature | `NeuronAnalysisService` |
+**None.** All tools required for this experiment are implemented. Full
+cross-model stratigraphy comparison can be run with normalized depths.
 
 ---
 
@@ -378,13 +393,14 @@ to say it" — the harmful association is replaced in the residual stream.
 ### Tools available today
 `generate_text`, `full_causal_trace`, `trace_token`, `ablate_layers`,
 `compute_steering_vector`, `steer_and_generate`,
-`scan_probe_across_layers`, `logit_attribution`
+`scan_probe_across_layers`, `logit_attribution`,
+`extract_direction`, `component_intervention`,
+`discover_neurons`, `neuron_trace`, `create_experiment`
 
 ### Tools still needed
 
 | Tool | Purpose | Backend |
 |------|---------|---------|
-| `extract_direction` | Find harmful direction | `DirectionExtractor` |
 | `inject_fact` | Runtime correction injection | `ExternalMemory` |
 | `query_with_memory` | Generate with corrections active | `ExternalMemory` |
 
@@ -403,16 +419,24 @@ Ordered by how many revolutionary experiments each tool unblocks:
 | 5 | `logit_attribution` | ✅ v0.8.0 | 1, 3, 4 |
 | 6 | `head_attribution` | ✅ v0.9.0 | 1, 4 |
 | 7 | `top_neurons` | ✅ v0.9.0 | 1, 3, 4 |
-| 8 | `extract_direction` | **Next** | 3, 4, 5, 6, 7 |
-| 9 | `discover_neurons` | Planned | 1, 3, 4, 5, 6 |
-| 10 | `measure_confidence` | Planned | 5 |
-| 11 | `inject_fact` / `query_with_memory` | Planned | 2, 7 |
-| 12 | `detect_format_gate` | Planned | 5 |
-| 13 | `analyze_neuron` | Planned | 1, 3 |
+| 8 | `extract_direction` | ✅ v0.10.0 | 3, 4, 5, 6, 7 |
+| 9 | `discover_neurons` | ✅ v0.10.0 | 1, 3, 4, 5, 6 |
+| 10 | `analyze_neuron` | ✅ v0.10.0 | 1, 3 |
+| 11 | `attribution_sweep` | ✅ v0.11.0 | 1, 3, 4, 6 |
+| 12 | `component_intervention` | ✅ v0.13.0 | 1, 7 |
+| 13 | `neuron_trace` | ✅ v0.14.0 | 1, 4 |
+| 14 | `track_race` | ✅ v0.12.0 | 4, 6 |
+| 15 | `probe_at_inference` | ✅ v0.13.0 | 5 |
+| 16 | `create_experiment` | ✅ v0.11.0 | 1, 3, 4, 5, 6 |
+| 17 | `measure_confidence` | Planned | 5 |
+| 18 | `inject_fact` / `query_with_memory` | Planned | 2, 7 |
+| 19 | `detect_format_gate` | Planned | 5 |
 
-**Current state:** 7 of 13 priority tools are implemented. The remaining
-high-priority items are `extract_direction` (unblocks 5 experiments) and
-`discover_neurons` (unblocks 5 experiments).
+**Current state:** 16 of 19 priority tools are implemented. Experiments
+1, 3, 4, and 6 are **fully unblocked** — all required tools exist.
+Experiment 5 needs `measure_confidence` and `detect_format_gate` for full
+coverage (core workflow possible today). Experiments 2 and 7 need
+`inject_fact` / `query_with_memory` for runtime knowledge injection.
 
 ---
 

@@ -38,7 +38,7 @@ chuk-mcp-lazarus/
 │       ├── probe_store.py           # Singleton: probe registry
 │       ├── steering_store.py        # Singleton: steering vector registry
 │       ├── resources.py             # MCP resources (model://info, probes, vectors)
-│       ├── errors.py                # ToolError enum + error envelope helper (16 error types)
+│       ├── errors.py                # ToolError enum + error envelope helper (17 error types)
 │       ├── _bootstrap.py            # Optional dependency stubs
 │       ├── comparison_state.py       # Singleton: comparison model (2nd model)
 │       ├── experiment_store.py      # Singleton: experiment persistence
@@ -69,9 +69,16 @@ chuk-mcp-lazarus/
 │           ├── direction_tools.py     # extract_direction
 │           ├── experiment_tools.py    # create_experiment, add_experiment_result,
 │           │                          #   get_experiment, list_experiments
-│           └── comparison_tools.py    # load_comparison_model, compare_weights,
-│                                      #   compare_representations, compare_attention,
-│                                      #   compare_generations, unload_comparison_model
+│           ├── comparison_tools.py    # load_comparison_model, compare_weights,
+│           │                          #   compare_representations, compare_attention,
+│           │                          #   compare_generations, unload_comparison_model
+│           └── geometry/              # Geometry tools (per-tool subpackage)
+│               ├── _helpers.py            # Shared enums, math, direction extraction
+│               ├── token_space.py         # token_space
+│               ├── direction_angles.py    # direction_angles
+│               ├── subspace_decomposition.py  # subspace_decomposition
+│               ├── residual_trajectory.py # residual_trajectory
+│               └── feature_dimensionality.py  # feature_dimensionality
 ├── tests/
 ├── pyproject.toml
 ├── ARCHITECTURE.md
@@ -1312,6 +1319,141 @@ async def list_experiments() -> dict:
 
 ---
 
+### Group 17 -- Geometry
+
+Angles, projections, and dimensionality analysis in the full native
+activation space. All angles reported in degrees. PCA projections are
+optional and flagged as lossy.
+
+#### `token_space`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def token_space(
+    prompt: str,
+    layer: int,
+    tokens: list[str],
+    token_position: int = -1,
+    include_projection: bool = False,
+) -> dict:
+    """Map geometric relationships between token directions and the residual
+    stream at a specific layer. Works in the full native dimensionality.
+
+    Reports angles (degrees) and projections between each token's unembedding
+    vector and the residual stream, plus pairwise angles between all tokens.
+
+    Args:
+        prompt:             Input text.
+        layer:              Layer to analyse.
+        tokens:             Tokens to map (e.g. ["Sydney", "Canberra"]).
+        token_position:     Which token position to use (-1 = last).
+        include_projection: Include lossy 2D PCA projection (default: False).
+    """
+```
+
+#### `direction_angles`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def direction_angles(
+    prompt: str,
+    layer: int,
+    directions: list[dict],
+    token_position: int = -1,
+) -> dict:
+    """Compute pairwise angles between arbitrary directions in activation space.
+
+    Each direction is a dict with 'type' (token, neuron, residual, ffn_output,
+    attention_output, head_output, steering_vector) and optional 'value'.
+
+    Args:
+        prompt:         Input text.
+        layer:          Layer to analyse.
+        directions:     List of direction specs.
+        token_position: Token position (-1 = last).
+    """
+```
+
+#### `subspace_decomposition`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def subspace_decomposition(
+    prompt: str,
+    layer: int,
+    target: dict,
+    basis_directions: list[dict],
+    token_position: int = -1,
+    orthogonalize: bool = True,
+) -> dict:
+    """Decompose a target vector into components along basis directions
+    plus an orthogonal residual.
+
+    Args:
+        prompt:            Input text.
+        layer:             Layer to analyse.
+        target:            Target direction spec.
+        basis_directions:  List of basis direction specs.
+        token_position:    Token position (-1 = last).
+        orthogonalize:     Apply Gram-Schmidt to basis (default: True).
+    """
+```
+
+#### `residual_trajectory`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def residual_trajectory(
+    prompt: str,
+    reference_tokens: list[str],
+    layers: list[int] | None = None,
+    token_position: int = -1,
+) -> dict:
+    """Track how the residual stream moves through activation space across
+    layers, measured by angles to reference token directions.
+
+    At each layer, reports the angle to each reference token, the rotation
+    from the previous layer, and what fraction of the residual is orthogonal
+    to all reference tokens.
+
+    Args:
+        prompt:           Input text.
+        reference_tokens: Tokens to measure against (e.g. ["Sydney", "Canberra"]).
+        layers:           Layer indices (None = all layers).
+        token_position:   Token position (-1 = last).
+    """
+```
+
+#### `feature_dimensionality`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def feature_dimensionality(
+    layer: int,
+    positive_prompts: list[str],
+    negative_prompts: list[str],
+    token_position: int = -1,
+    max_dims: int = 50,
+) -> dict:
+    """Estimate the effective dimensionality of a feature at a layer.
+
+    Extracts activations for positive/negative prompt groups and computes
+    principal components of the difference. Reports how many dimensions
+    are needed to capture the feature.
+
+    1 dimension = clean direction. 50 dimensions = holographically distributed.
+
+    Args:
+        layer:             Layer to analyse.
+        positive_prompts:  Prompts representing the positive class (min 2).
+        negative_prompts:  Prompts representing the negative class (min 2).
+        token_position:    Token position (-1 = last).
+        max_dims:          Maximum dimensions to analyse (default: 50).
+    """
+```
+
+---
+
 ### Group 8 -- Resources
 
 ```python
@@ -1489,4 +1631,4 @@ German."*
 
 ## Version
 
-`0.14.0` -- 46 tools, 4 resources, 13 demo scripts, 772 tests. Apache 2.0.
+`0.15.0` -- 51 tools, 4 resources, 13 demo scripts, 858 tests. Apache 2.0.

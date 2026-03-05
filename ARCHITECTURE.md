@@ -155,6 +155,13 @@ tools/
   comparison_tools.py   load_comparison_model, compare_weights,
                         compare_representations, compare_attention,
                         compare_generations, unload_comparison_model
+  geometry/             Per-tool subpackage (first subpackage pattern)
+    _helpers.py           Shared enums, math, direction extraction
+    token_space.py        token_space
+    direction_angles.py   direction_angles
+    subspace_decomposition.py  subspace_decomposition
+    residual_trajectory.py     residual_trajectory
+    feature_dimensionality.py  feature_dimensionality
 ```
 
 Each layer has a single responsibility:
@@ -257,6 +264,10 @@ class ToolError(str, Enum):
     ABLATION_FAILED = "AblationFailed"
     COMPARISON_FAILED = "ComparisonFailed"
     COMPARISON_INCOMPATIBLE = "ComparisonIncompatible"
+    EXPERIMENT_NOT_FOUND = "ExperimentNotFound"
+    EXPERIMENT_STORE_ERROR = "ExperimentStoreError"
+    INTERVENTION_FAILED = "InterventionFailed"
+    GEOMETRY_FAILED = "GeometryFailed"
     LOAD_FAILED = "LoadFailed"
 ```
 

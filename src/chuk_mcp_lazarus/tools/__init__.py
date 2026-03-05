@@ -13,6 +13,7 @@ from . import comparison_tools  # noqa: F401
 from . import direction_tools  # noqa: F401
 from . import experiment_tools  # noqa: F401
 from . import generation_tools  # noqa: F401
+from . import geometry  # noqa: F401
 from . import intervention_tools  # noqa: F401
 from . import model_tools  # noqa: F401
 from . import neuron_tools  # noqa: F401

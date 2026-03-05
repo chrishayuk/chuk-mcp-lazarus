@@ -379,6 +379,25 @@ through downstream layers via cosine similarity with residual, attention, and FF
 
 **Status:** Steps 15--22 complete. **46 tools**, **772 tests**, `make check` green.
 
+#### Step 23: Geometry Tools ✅
+
+Activation-space geometry in the full native dimensionality. Angles in
+degrees as primary output. PCA projections optional and flagged as lossy.
+
+| Tool | Purpose | Backed by |
+|------|---------|-----------|
+| `token_space` | Angles between token unembed vectors and residual stream at a layer | Weight lookups + single forward pass |
+| `direction_angles` | Pairwise angles between any directions (tokens, neurons, heads, residual, FFN, attention, steering vectors) | Typed `DirectionSpec` extraction |
+| `subspace_decomposition` | Decompose a target into basis direction components + orthogonal residual | Gram-Schmidt orthogonalisation |
+| `residual_trajectory` | Track residual rotation through layers by angles to reference tokens | All-layer forward pass |
+| `feature_dimensionality` | PCA spectrum + classification-by-dimension for a feature | SVD + sklearn LogisticRegression |
+
+> **Note:** Geometry tools are structured as a subpackage (`tools/geometry/`)
+> with one file per tool and shared helpers in `_helpers.py`. This is the
+> first subpackage under `tools/` — future tool groups may follow the same pattern.
+
+**Status:** Steps 15--23 complete. **51 tools**, **858 tests**, `make check` green.
+
 Steps 13--14 (confidence/metacognition, external memory) remain valid
 but are deprioritized.
 
@@ -700,7 +719,8 @@ If chuk-lazarus training capabilities are exposed:
 | 0.12.0 | Phase 1c Step 16 (attribution_sweep: batch logit attribution) | ✅ |
 | 0.13.0 | Phase 1c Step 17 (experiment persistence: create/add/get/list) | ✅ |
 | 0.14.0 | Phase 1d Steps 18--22 (track_race, component_intervention, probe_at_inference, neuron_trace) | ✅ |
-| 0.15.0 | Phase 1b Steps 13--14 (confidence, metacognition, external memory) | |
+| 0.15.0 | Phase 1e Step 23 (geometry: token_space, direction_angles, subspace_decomposition, residual_trajectory, feature_dimensionality) | ✅ |
+| 0.16.0 | Phase 1b Steps 13--14 (confidence, metacognition, external memory) | |
 | 0.17.0 | Phase 2 (tokenizer server) | |
 | 0.18.0 | Phase 3 (introspect server) | |
 | 0.19.0 | Phase 4 core (MoE: routing, ablation, identification) | |
@@ -713,7 +733,7 @@ If chuk-lazarus training capabilities are exposed:
 
 | Phase | Server | Tools |
 |-------|--------|-------|
-| 1+1b+1c+1d | lazarus (core + extended + experiment-driven) | 46 |
+| 1+1b+1c+1d+1e | lazarus (core + extended + experiment-driven + geometry) | 51 |
 | 2 | tokenizer | 11 |
 | 3 | introspect | 7 |
 | 4 | moe | 20 |

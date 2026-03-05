@@ -25,12 +25,13 @@ class TestToolError:
             "EXPERIMENT_NOT_FOUND",
             "EXPERIMENT_STORE_ERROR",
             "INTERVENTION_FAILED",
+            "GEOMETRY_FAILED",
             "LOAD_FAILED",
         }
         assert set(ToolError.__members__.keys()) == expected
 
     def test_count(self) -> None:
-        assert len(ToolError) == 16
+        assert len(ToolError) == 17
 
     @pytest.mark.parametrize("member", list(ToolError))
     def test_string_value(self, member: ToolError) -> None:
