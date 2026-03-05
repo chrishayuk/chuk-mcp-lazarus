@@ -6,8 +6,6 @@ layers, measured by angles to reference token directions. Reports
 rotation angles, crossing layers, and orthogonal fractions.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from typing import Any

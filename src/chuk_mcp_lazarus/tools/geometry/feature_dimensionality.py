@@ -6,8 +6,6 @@ spectrum analysis and classification-by-dimension. 1 dimension = clean
 direction. 50 dimensions = holographically distributed.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from typing import Any

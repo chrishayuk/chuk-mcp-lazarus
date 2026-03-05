@@ -6,8 +6,6 @@ activation space at a specific layer. Supports tokens, neurons, residual
 stream, FFN/attention outputs, head outputs, and steering vectors.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from typing import Any

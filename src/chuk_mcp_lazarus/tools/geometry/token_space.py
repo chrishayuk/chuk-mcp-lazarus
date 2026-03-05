@@ -5,8 +5,6 @@ Maps geometric relationships between token directions and the residual
 stream at a specific layer. Works in the full native dimensionality.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from typing import Any

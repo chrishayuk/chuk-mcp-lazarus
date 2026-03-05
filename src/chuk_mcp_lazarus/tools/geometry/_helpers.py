@@ -5,8 +5,6 @@ Enums, typed specs, math utilities, token resolution, and direction
 vector extraction used across all geometry tools.
 """
 
-from __future__ import annotations
-
 import logging
 from enum import Enum
 from typing import Any

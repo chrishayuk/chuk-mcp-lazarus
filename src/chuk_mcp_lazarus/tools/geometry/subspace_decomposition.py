@@ -6,8 +6,6 @@ optional Gram-Schmidt orthogonalisation. Reports energy fractions and
 the orthogonal residual. All in the full native dimensionality.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from typing import Any
