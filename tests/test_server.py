@@ -1,5 +1,7 @@
 """Tests for server.py — ChukMCPServer instance."""
 
+from importlib.metadata import version as pkg_version
+
 from chuk_mcp_lazarus.server import mcp
 
 
@@ -13,4 +15,4 @@ class TestServer:
         assert mcp.name == "chuk-mcp-lazarus"
 
     def test_version(self) -> None:
-        assert mcp.version == "0.9.0"
+        assert mcp.version == pkg_version("chuk-mcp-lazarus")
