@@ -395,12 +395,17 @@ degrees as primary output. PCA projections optional and flagged as lossy.
 | `computation_map` | Complete prediction flow: geometry, attribution, logit lens race, top heads/neurons in one call | Single decomposition forward pass |
 | `inject_residual` | Inject donor residual into recipient at a layer and continue generation (Markov property test) | Manual forward pass with state replacement |
 | `residual_match` | Find candidate prompts with most similar residual streams to a target at a layer | Cosine similarity + optional subspace projection |
+| `compute_subspace` | PCA subspace from model activations across varied prompts — stores basis in SubspaceRegistry | SVD on centred activations |
+| `list_subspaces` | List all named PCA subspaces stored in the SubspaceRegistry | Pure registry read |
+| `residual_atlas` | Map residual stream via PCA on diverse prompts: variance spectrum, vocab-decoded principal components | SVD + unembedding projection per PC |
+| `weight_geometry` | Map supply side: head/neuron push directions through unembedding, effective supply rank | Weight extraction + batch lm_head projection |
+| `residual_map` | Compact per-layer variance spectrum across the full model (no vocab projection) | SVD per layer, effective dimensionality |
 
 > **Note:** Geometry tools are structured as a subpackage (`tools/geometry/`)
 > with one file per tool and shared helpers in `_helpers.py`. This is the
 > first subpackage under `tools/` — future tool groups may follow the same pattern.
 
-**Status:** Steps 15--23 complete. **55 tools**, **964 tests**, `make check` green.
+**Status:** Steps 15--23 complete. **60 tools**, **1072 tests**, `make check` green.
 
 Steps 13--14 (confidence/metacognition, external memory) remain valid
 but are deprioritized.
@@ -737,11 +742,11 @@ If chuk-lazarus training capabilities are exposed:
 
 | Phase | Server | Tools |
 |-------|--------|-------|
-| 1+1b+1c+1d+1e | lazarus (core + extended + experiment-driven + geometry) | 55 |
+| 1+1b+1c+1d+1e | lazarus (core + extended + experiment-driven + geometry) | 60 |
 | 2 | tokenizer | 11 |
 | 3 | introspect | 7 |
 | 4 | moe | 20 |
-| **Total** | | **~86** |
+| **Total** | | **~98** |
 
 ---
 

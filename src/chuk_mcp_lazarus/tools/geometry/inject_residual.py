@@ -18,6 +18,7 @@ from ..._generate import generate_text
 from ...errors import ToolError, make_error
 from ...model_state import ModelState
 from ...server import mcp
+from ...subspace_registry import SubspaceRegistry
 from ._helpers import (
     _angle_between,
     _cosine_sim,
@@ -92,6 +93,7 @@ class SubspaceAnalysis(BaseModel):
     )
     subspace_cosine_similarity: float
     orthogonal_cosine_similarity: float
+    subspace_name: str | None = None
 
 
 class InjectResidualResult(BaseModel):
@@ -334,6 +336,7 @@ async def inject_residual(
     recipient_position: int = -1,
     subspace_only: bool = False,
     subspace_tokens: list[str] | None = None,
+    subspace_name: str | None = None,
     patch_all_positions: bool = False,
 ) -> dict:
     """Inject the residual stream from one prompt into another at a
@@ -360,6 +363,9 @@ async def inject_residual(
         subspace_only:      Only inject the subspace component.
         subspace_tokens:    Tokens defining the injection subspace
                             (required if subspace_only=True).
+        subspace_name:      Name of a PCA subspace from SubspaceRegistry
+                            (from compute_subspace).  Mutually exclusive
+                            with subspace_tokens.
         patch_all_positions: If True, inject the donor's entire hidden
                             state tensor across all positions, replacing
                             the recipient's full residual stream at that
@@ -391,16 +397,28 @@ async def inject_residual(
             "temperature must be non-negative.",
             "inject_residual",
         )
-    if subspace_only and (not subspace_tokens or len(subspace_tokens) == 0):
+    if subspace_tokens and subspace_name:
         return make_error(
             ToolError.INVALID_INPUT,
-            "subspace_tokens required when subspace_only=True.",
+            "subspace_tokens and subspace_name are mutually exclusive.",
             "inject_residual",
         )
-    if patch_all_positions and subspace_only:
+    if subspace_only and not subspace_tokens and subspace_name is None:
         return make_error(
             ToolError.INVALID_INPUT,
-            "patch_all_positions=True is incompatible with subspace_only=True.",
+            "subspace_tokens or subspace_name required when subspace_only=True.",
+            "inject_residual",
+        )
+    if patch_all_positions and (subspace_only or subspace_name is not None):
+        return make_error(
+            ToolError.INVALID_INPUT,
+            "patch_all_positions=True is incompatible with subspace injection.",
+            "inject_residual",
+        )
+    if subspace_name is not None and not SubspaceRegistry.get().exists(subspace_name):
+        return make_error(
+            ToolError.VECTOR_NOT_FOUND,
+            f"Subspace '{subspace_name}' not found in SubspaceRegistry.",
             "inject_residual",
         )
     if subspace_tokens and len(subspace_tokens) > 20:
@@ -425,6 +443,7 @@ async def inject_residual(
             recipient_position,
             subspace_only,
             subspace_tokens,
+            subspace_name,
             patch_all_positions,
         )
     except Exception as exc:
@@ -451,6 +470,7 @@ def _inject_residual_impl(
     recipient_position: int,
     subspace_only: bool,
     subspace_tokens: list[str] | None,
+    subspace_name: str | None,
     patch_all_positions: bool = False,
 ) -> dict:
     """Sync implementation of inject_residual."""
@@ -567,6 +587,44 @@ def _inject_residual_impl(
             recipient_subspace_fraction=round(r_sub_frac, 6),
             subspace_cosine_similarity=round(sub_cos, 6),
             orthogonal_cosine_similarity=round(orth_cos, 6),
+        )
+    elif subspace_name is not None:
+        # Fetch PCA basis from SubspaceRegistry
+        entry = SubspaceRegistry.get().fetch(subspace_name)
+        if entry is None:
+            return make_error(
+                ToolError.VECTOR_NOT_FOUND,
+                f"Subspace '{subspace_name}' not found.",
+                "inject_residual",
+            )
+        basis_matrix, _sub_meta = entry  # [rank, hidden_dim]
+
+        # Project donor onto PCA subspace
+        donor_sub = basis_matrix.T @ (basis_matrix @ donor_np)
+        # Get recipient's orthogonal component
+        recip_sub = basis_matrix.T @ (basis_matrix @ recip_np)
+        recip_orth = recip_np - recip_sub
+
+        injection_np = donor_sub + recip_orth
+
+        # Subspace analysis
+        donor_norm_sq = float(np.dot(donor_np, donor_np)) + 1e-12
+        recip_norm_sq = float(np.dot(recip_np, recip_np)) + 1e-12
+        d_sub_frac = float(np.dot(donor_sub, donor_sub)) / donor_norm_sq
+        r_sub_frac = float(np.dot(recip_sub, recip_sub)) / recip_norm_sq
+
+        donor_orth = donor_np - donor_sub
+        sub_cos = _cosine_sim(donor_sub, recip_sub)
+        orth_cos = _cosine_sim(donor_orth, recip_orth)
+
+        subspace_result = SubspaceAnalysis(
+            subspace_dim=int(basis_matrix.shape[0]),
+            tokens_used=[],
+            donor_subspace_fraction=round(d_sub_frac, 6),
+            recipient_subspace_fraction=round(r_sub_frac, 6),
+            subspace_cosine_similarity=round(sub_cos, 6),
+            orthogonal_cosine_similarity=round(orth_cos, 6),
+            subspace_name=subspace_name,
         )
     else:
         injection_np = donor_np.copy()

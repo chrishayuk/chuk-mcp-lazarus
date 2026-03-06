@@ -37,7 +37,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 }
 ```
 
-## Tools (55)
+## Tools (60)
 
 | Group | Tool | Purpose |
 |-------|------|---------|
@@ -96,6 +96,11 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 | Geometry | `computation_map` | Complete prediction flow: geometry, attribution, logit lens race, top heads/neurons in one call |
 | Geometry | `inject_residual` | Inject donor residual into recipient at a layer and continue generation (Markov property test) |
 | Geometry | `residual_match` | Find candidate prompts with most similar residual streams to a target at a layer |
+| Geometry | `compute_subspace` | PCA subspace from model activations across varied prompts — stores basis in SubspaceRegistry |
+| Geometry | `list_subspaces` | List all named PCA subspaces stored in the SubspaceRegistry |
+| Geometry | `residual_atlas` | Map residual stream via PCA on diverse prompts: variance spectrum, vocab-decoded principal components |
+| Geometry | `weight_geometry` | Map supply side: head/neuron push directions through unembedding, effective supply rank |
+| Geometry | `residual_map` | Compact per-layer variance spectrum across the full model (no vocab projection) |
 
 ## Resources (4)
 
@@ -227,7 +232,11 @@ src/chuk_mcp_lazarus/
         ├── decode_residual.py     # decode_residual
         ├── computation_map.py     # computation_map
         ├── inject_residual.py     # inject_residual
-        └── residual_match.py      # residual_match
+        ├── residual_match.py      # residual_match
+        ├── compute_subspace.py    # compute_subspace, list_subspaces
+        ├── residual_atlas.py      # residual_atlas
+        ├── weight_geometry.py     # weight_geometry
+        └── residual_map.py        # residual_map
 ```
 
 ## Development

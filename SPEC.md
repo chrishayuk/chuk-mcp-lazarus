@@ -81,7 +81,11 @@ chuk-mcp-lazarus/
 │               ├── feature_dimensionality.py  # feature_dimensionality
 │               ├── computation_map.py     # computation_map
 │               ├── inject_residual.py     # inject_residual
-│               └── residual_match.py      # residual_match
+│               ├── residual_match.py      # residual_match
+│               ├── compute_subspace.py    # compute_subspace, list_subspaces
+│               ├── residual_atlas.py      # residual_atlas
+│               ├── weight_geometry.py     # weight_geometry
+│               └── residual_map.py        # residual_map
 ├── tests/
 ├── pyproject.toml
 ├── ARCHITECTURE.md
@@ -97,7 +101,7 @@ chuk-mcp-lazarus/
 ```toml
 [project]
 name = "chuk-mcp-lazarus"
-version = "0.14.0"
+version = "0.15.0"
 requires-python = ">=3.11"
 
 dependencies = [
@@ -1576,6 +1580,124 @@ async def residual_match(
         token_position:    Token position (-1 = last).
         subspace_tokens:   Optional tokens defining a task-relevant
                            subspace for separate similarity reporting.
+    """
+```
+
+#### `compute_subspace`
+
+```python
+@mcp.tool()
+async def compute_subspace(
+    subspace_name: str,
+    layer: int,
+    prompts: list[str],
+    rank: int = 10,
+    token_position: int = -1,
+) -> dict:
+    """Compute a PCA subspace from model activations and store it in
+    the SubspaceRegistry for use with inject_residual.
+
+    Runs each prompt through the model at the given layer, collects
+    hidden-state vectors at token_position, centres them, and computes
+    the top-rank principal components via SVD.
+
+    Args:
+        subspace_name:  Name to store this subspace under.
+        layer:          Layer to extract activations at.
+        prompts:        Varied prompts (min 3, max 500).
+        rank:           Number of PCA components to retain (1-100).
+        token_position: Token position (-1 = last).
+    """
+```
+
+#### `list_subspaces`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def list_subspaces() -> dict:
+    """List all named subspaces stored in the SubspaceRegistry.
+
+    Returns names, layers, ranks, and variance explained for each
+    stored subspace.
+    """
+```
+
+#### `residual_atlas`
+
+```python
+@mcp.tool(read_only_hint=True)
+async def residual_atlas(
+    prompts: list[str],
+    layers: list[int] | int,
+    token_position: int = -1,
+    max_components: int = 50,
+    top_k_tokens: int = 10,
+    store_subspace: str | None = None,
+) -> dict:
+    """Map the residual stream structure via PCA on diverse prompt activations.
+
+    Collects hidden-state vectors from many prompts at specified layers,
+    runs PCA to find the dominant directions of variation, and projects
+    each principal component through the unembedding matrix to decode
+    what it represents in vocabulary space.
+
+    Args:
+        prompts:          Diverse prompts to extract activations from (10-2000).
+        layers:           Layer index or list of layer indices.
+        token_position:   Token position (-1 = last).
+        max_components:   PCA components to analyse in detail (1-200).
+        top_k_tokens:     Vocabulary tokens to decode per component (1-50).
+        store_subspace:   If provided, store PCA basis in SubspaceRegistry.
+    """
+```
+
+#### `weight_geometry`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def weight_geometry(
+    layer: int,
+    top_k_neurons: int = 100,
+    top_k_vocab: int = 5,
+    include_pca: bool = True,
+) -> dict:
+    """Map what directions every component can push toward (supply side).
+
+    Extracts each attention head's output-projection push direction and
+    the top-k MLP neuron down_proj columns, projects them through
+    the unembedding matrix, and optionally runs PCA on all directions.
+
+    No forward pass required — purely from weights.
+
+    Args:
+        layer:          Layer index to analyse.
+        top_k_neurons:  Number of MLP neurons to analyse (by L2 norm, 1-500).
+        top_k_vocab:    Vocabulary tokens to decode per direction (1-20).
+        include_pca:    Run PCA on all push directions for supply rank.
+    """
+```
+
+#### `residual_map`
+
+```python
+@mcp.tool(read_only_hint=True)
+async def residual_map(
+    prompts: list[str],
+    layers: list[int] | None = None,
+    token_position: int = -1,
+    max_components: int = 100,
+) -> dict:
+    """Compact per-layer variance spectrum across the full model.
+
+    Runs PCA at each layer and returns effective dimensionality and
+    variance spectrum — no vocabulary projections. Use this to see
+    how representation structure evolves across layers.
+
+    Args:
+        prompts:          Diverse prompts to extract activations from (10-2000).
+        layers:           Layer indices (None = auto-select evenly-spaced layers).
+        token_position:   Token position (-1 = last).
+        max_components:   PCA components to compute (1-200).
     """
 ```
 

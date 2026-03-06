@@ -258,3 +258,83 @@ def _extract_direction_vector(
         return (f"head:{spec.value}", np.array(hraw, dtype=np.float32), None)
 
     return ("", None, f"Unhandled direction type '{spec.type.value}'.")
+
+
+# ---------------------------------------------------------------------------
+# Shared PCA helpers
+# ---------------------------------------------------------------------------
+
+
+def collect_activations(
+    model: Any,
+    config: Any,
+    tokenizer: Any,
+    prompts: list[str],
+    layers: list[int],
+    token_position: int = -1,
+) -> dict[int, list[np.ndarray]]:
+    """Collect per-layer activations for many prompts.
+
+    Single-layer uses ``extract_activation_at_layer`` (lighter).
+    Multi-layer uses ``extract_activations_all_layers`` (one forward pass).
+
+    Returns ``{layer: [np.ndarray(hidden_dim,), ...]}``.
+    """
+    from ..._extraction import extract_activation_at_layer, extract_activations_all_layers
+
+    per_layer: dict[int, list[np.ndarray]] = {lyr: [] for lyr in layers}
+
+    if len(layers) > 1:
+        for p in prompts:
+            layer_acts = extract_activations_all_layers(
+                model, config, tokenizer, p, layers, token_position
+            )
+            for lyr in layers:
+                if lyr in layer_acts:
+                    per_layer[lyr].append(np.array(layer_acts[lyr], dtype=np.float32))
+    else:
+        lyr = layers[0]
+        for p in prompts:
+            act = extract_activation_at_layer(model, config, tokenizer, p, lyr, token_position)
+            per_layer[lyr].append(np.array(act, dtype=np.float32))
+
+    return per_layer
+
+
+def dims_for_threshold(cumulative_vars: list[float], threshold: float, total: int) -> int:
+    """Number of components needed to reach a cumulative variance threshold."""
+    for i, cv in enumerate(cumulative_vars):
+        if cv >= threshold:
+            return i + 1
+    return total
+
+
+def effective_dimensionality(
+    s_vals: np.ndarray,
+    n_components: int,
+    total_var: float,
+) -> tuple[dict[str, int], list[float]]:
+    """Compute effective dimensionality at standard thresholds.
+
+    Returns ``(eff_dim_dict, cumulative_list)`` where eff_dim_dict has keys
+    ``dims_for_50pct`` through ``dims_for_99pct``.
+    """
+    cumulative = 0.0
+    cumulative_list: list[float] = []
+
+    for sv in s_vals[:n_components]:
+        cumulative += float(sv**2) / total_var
+        cumulative_list.append(cumulative)
+
+    thresholds = [
+        ("dims_for_50pct", 0.50),
+        ("dims_for_80pct", 0.80),
+        ("dims_for_90pct", 0.90),
+        ("dims_for_95pct", 0.95),
+        ("dims_for_99pct", 0.99),
+    ]
+    eff_dim = {
+        name: dims_for_threshold(cumulative_list, thresh, n_components)
+        for name, thresh in thresholds
+    }
+    return eff_dim, cumulative_list

@@ -657,6 +657,7 @@ from chuk_mcp_lazarus.comparison_state import ComparisonState  # noqa: E402
 from chuk_mcp_lazarus.experiment_store import ExperimentStore  # noqa: E402
 from chuk_mcp_lazarus.probe_store import ProbeRegistry  # noqa: E402
 from chuk_mcp_lazarus.steering_store import SteeringVectorRegistry  # noqa: E402
+from chuk_mcp_lazarus.subspace_registry import SubspaceRegistry  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -802,3 +803,4 @@ def reset_singletons() -> Any:
     ExperimentStore.reset()
     ProbeRegistry._instance = None
     SteeringVectorRegistry._instance = None
+    SubspaceRegistry._instance = None

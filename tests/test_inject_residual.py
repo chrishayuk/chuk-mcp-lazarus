@@ -142,6 +142,96 @@ class TestInjectResidual:
         assert result["error_type"] == "GeometryFailed"
 
     @pytest.mark.asyncio
+    async def test_subspace_name_not_found(self, loaded_model_state: Any) -> None:
+        from chuk_mcp_lazarus.tools.geometry.inject_residual import inject_residual
+
+        result = await inject_residual(
+            donor_prompt="A",
+            recipient_prompt="B",
+            layer=0,
+            subspace_name="nonexistent",
+        )
+        assert result["error_type"] == "VectorNotFound"
+
+    @pytest.mark.asyncio
+    async def test_subspace_name_mutual_exclusion(self, loaded_model_state: Any) -> None:
+        from chuk_mcp_lazarus.tools.geometry.inject_residual import inject_residual
+
+        result = await inject_residual(
+            donor_prompt="A",
+            recipient_prompt="B",
+            layer=0,
+            subspace_tokens=["alpha"],
+            subspace_name="some_sub",
+        )
+        assert result["error_type"] == "InvalidInput"
+        assert "mutually exclusive" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_patch_all_with_subspace_name(self, loaded_model_state: Any) -> None:
+        from chuk_mcp_lazarus.tools.geometry.inject_residual import inject_residual
+
+        result = await inject_residual(
+            donor_prompt="A",
+            recipient_prompt="B",
+            layer=0,
+            subspace_name="some_sub",
+            patch_all_positions=True,
+        )
+        assert result["error_type"] == "InvalidInput"
+        assert "incompatible" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_subspace_name_success(self, loaded_model_state: Any) -> None:
+        from chuk_mcp_lazarus.subspace_registry import SubspaceRegistry
+        from chuk_mcp_lazarus.tools.geometry.inject_residual import inject_residual
+
+        # Pre-store a subspace
+        reg = SubspaceRegistry.get()
+        basis = np.eye(3, 64, dtype=np.float32)
+        from chuk_mcp_lazarus.subspace_registry import SubspaceMetadata
+
+        meta = SubspaceMetadata(
+            name="test_sub",
+            layer=0,
+            rank=3,
+            num_prompts=5,
+            hidden_dim=64,
+            variance_explained=[0.5, 0.3, 0.2],
+            total_variance_explained=1.0,
+            computed_at="2024-01-01T00:00:00+00:00",
+        )
+        reg.store("test_sub", basis, meta)
+
+        fake = {
+            "donor_prompt": "A",
+            "recipient_prompt": "B",
+            "layer": 0,
+            "donor_position": -1,
+            "recipient_position": -1,
+            "subspace_only": False,
+            "patch_all_positions": False,
+            "donor_output": {},
+            "recipient_output": {},
+            "injected_output": {},
+            "comparison": {},
+            "residual_similarity": {},
+            "subspace_analysis": {"subspace_name": "test_sub"},
+            "summary": {},
+        }
+        with patch(
+            "chuk_mcp_lazarus.tools.geometry.inject_residual._inject_residual_impl",
+            return_value=fake,
+        ):
+            result = await inject_residual(
+                donor_prompt="A",
+                recipient_prompt="B",
+                layer=0,
+                subspace_name="test_sub",
+            )
+        assert "error" not in result
+
+    @pytest.mark.asyncio
     async def test_patch_all_with_subspace_only(self, loaded_model_state: Any) -> None:
         from chuk_mcp_lazarus.tools.geometry.inject_residual import inject_residual
 
@@ -209,6 +299,7 @@ class TestInjectResidualImpl:
         self,
         subspace_only: bool = False,
         subspace_tokens: list[str] | None = None,
+        subspace_name: str | None = None,
         max_new_tokens: int = 5,
         patch_all_positions: bool = False,
     ) -> dict:
@@ -342,6 +433,7 @@ class TestInjectResidualImpl:
                 -1,
                 subspace_only,
                 subspace_tokens,
+                subspace_name,
                 patch_all_positions,
             )
 
@@ -483,6 +575,50 @@ class TestInjectResidualImpl:
         r = self._run(patch_all_positions=True)
         # INJECTED_LOGITS top-1 == token 0, DONOR_LOGITS top-1 == token 0
         assert r["comparison"]["injected_matches_donor"] is True
+
+    def test_subspace_name_produces_analysis(self) -> None:
+        from chuk_mcp_lazarus.subspace_registry import SubspaceMetadata, SubspaceRegistry
+
+        reg = SubspaceRegistry.get()
+        basis = np.eye(2, DIM, dtype=np.float32)
+        meta = SubspaceMetadata(
+            name="impl_test",
+            layer=0,
+            rank=2,
+            num_prompts=5,
+            hidden_dim=DIM,
+            variance_explained=[0.6, 0.4],
+            total_variance_explained=1.0,
+            computed_at="2024-01-01T00:00:00+00:00",
+        )
+        reg.store("impl_test", basis, meta)
+        r = self._run(subspace_name="impl_test")
+        sa = r["subspace_analysis"]
+        assert sa is not None
+        assert sa["subspace_name"] == "impl_test"
+        assert sa["subspace_dim"] == 2
+        assert sa["tokens_used"] == []
+
+    def test_subspace_name_fractions_range(self) -> None:
+        from chuk_mcp_lazarus.subspace_registry import SubspaceMetadata, SubspaceRegistry
+
+        reg = SubspaceRegistry.get()
+        basis = np.eye(2, DIM, dtype=np.float32)
+        meta = SubspaceMetadata(
+            name="frac_test",
+            layer=0,
+            rank=2,
+            num_prompts=5,
+            hidden_dim=DIM,
+            variance_explained=[0.6, 0.4],
+            total_variance_explained=1.0,
+            computed_at="2024-01-01T00:00:00+00:00",
+        )
+        reg.store("frac_test", basis, meta)
+        r = self._run(subspace_name="frac_test")
+        sa = r["subspace_analysis"]
+        assert 0.0 <= sa["donor_subspace_fraction"] <= 1.0
+        assert 0.0 <= sa["recipient_subspace_fraction"] <= 1.0
 
 
 # ---------------------------------------------------------------------------

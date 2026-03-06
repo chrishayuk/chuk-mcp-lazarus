@@ -155,13 +155,23 @@ tools/
   comparison_tools.py   load_comparison_model, compare_weights,
                         compare_representations, compare_attention,
                         compare_generations, unload_comparison_model
-  geometry/             Per-tool subpackage (first subpackage pattern)
-    _helpers.py           Shared enums, math, direction extraction
+  geometry/             Per-tool subpackage (14 tools)
+    _helpers.py           Shared enums, math, direction extraction,
+                          PCA helpers (collect_activations,
+                          effective_dimensionality)
     token_space.py        token_space
     direction_angles.py   direction_angles
     subspace_decomposition.py  subspace_decomposition
     residual_trajectory.py     residual_trajectory
     feature_dimensionality.py  feature_dimensionality
+    decode_residual.py    decode_residual
+    computation_map.py    computation_map
+    inject_residual.py    inject_residual
+    residual_match.py     residual_match
+    compute_subspace.py   compute_subspace, list_subspaces
+    residual_atlas.py     residual_atlas
+    weight_geometry.py    weight_geometry
+    residual_map.py       residual_map
 ```
 
 Each layer has a single responsibility:
