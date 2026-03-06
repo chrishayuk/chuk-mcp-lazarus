@@ -25,6 +25,7 @@ from ._helpers import (
     _resolve_token_to_id,
     _token_text_at,
     _unit,
+    coerce_layers,
 )
 
 logger = logging.getLogger(__name__)
@@ -118,6 +119,7 @@ async def residual_trajectory(
         return make_error(
             ToolError.INVALID_INPUT, "Maximum 10 reference tokens.", "residual_trajectory"
         )
+    layers = coerce_layers(layers)
     if layers is None:
         layers = _auto_layers(meta.num_layers)
     for lyr in layers:

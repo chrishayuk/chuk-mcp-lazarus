@@ -86,6 +86,23 @@ def _gram_schmidt(vectors: list[np.ndarray]) -> list[np.ndarray]:
     return basis
 
 
+def coerce_layers(layers: Any) -> list[int] | None:
+    """Coerce a layers argument from MCP into a list[int].
+
+    MCP may deliver ``layers: "28"`` (str) instead of ``28`` (int),
+    or ``["0", "16", "33"]`` instead of ``[0, 16, 33]``.
+    Returns None if *layers* is None (for optional-layers tools).
+    """
+    if layers is None:
+        return None
+    if isinstance(layers, (int, float)):
+        return [int(layers)]
+    if isinstance(layers, str):
+        return [int(layers)]
+    # list / tuple — coerce each element
+    return [int(x) for x in layers]
+
+
 def _auto_layers(num_layers: int, max_points: int = 20) -> list[int]:
     """Auto-select evenly spaced layers, always including 0 and last."""
     if num_layers <= max_points:

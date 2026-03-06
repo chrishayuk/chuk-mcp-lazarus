@@ -25,6 +25,7 @@ from ._helpers import (
     _gram_schmidt,
     _resolve_token_to_id,
     _unit,
+    coerce_layers,
 )
 
 logger = logging.getLogger(__name__)
@@ -216,6 +217,7 @@ async def computation_map(
             "Maximum 10 candidate tokens.",
             "computation_map",
         )
+    layers = coerce_layers(layers)
     if layers is not None:
         for lyr in layers:
             if lyr < 0 or lyr >= meta.num_layers:

@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from ...errors import ToolError, make_error
 from ...model_state import ModelState
 from ...server import mcp
-from ._helpers import collect_activations, effective_dimensionality
+from ._helpers import coerce_layers, collect_activations, effective_dimensionality
 
 logger = logging.getLogger(__name__)
 
@@ -98,10 +98,11 @@ async def residual_map(
         return make_error(ToolError.MODEL_NOT_LOADED, "Call load_model() first.", "residual_map")
     meta = state.metadata
 
-    if layers is None:
+    coerced = coerce_layers(layers)
+    if coerced is None:
         layers_list = _auto_layers(meta.num_layers)
     else:
-        layers_list = list(layers)
+        layers_list = coerced
 
     if not layers_list:
         return make_error(ToolError.INVALID_INPUT, "At least 1 layer required.", "residual_map")

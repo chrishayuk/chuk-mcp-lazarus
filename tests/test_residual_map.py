@@ -98,6 +98,38 @@ class TestResidualMap:
 # ---------------------------------------------------------------------------
 
 
+class TestCoerceLayers:
+    def test_none(self) -> None:
+        from chuk_mcp_lazarus.tools.geometry._helpers import coerce_layers
+
+        assert coerce_layers(None) is None
+
+    def test_single_int(self) -> None:
+        from chuk_mcp_lazarus.tools.geometry._helpers import coerce_layers
+
+        assert coerce_layers(28) == [28]
+
+    def test_single_str(self) -> None:
+        from chuk_mcp_lazarus.tools.geometry._helpers import coerce_layers
+
+        assert coerce_layers("28") == [28]
+
+    def test_list_of_ints(self) -> None:
+        from chuk_mcp_lazarus.tools.geometry._helpers import coerce_layers
+
+        assert coerce_layers([0, 16, 33]) == [0, 16, 33]
+
+    def test_list_of_strs(self) -> None:
+        from chuk_mcp_lazarus.tools.geometry._helpers import coerce_layers
+
+        assert coerce_layers(["0", "16", "33"]) == [0, 16, 33]
+
+    def test_float(self) -> None:
+        from chuk_mcp_lazarus.tools.geometry._helpers import coerce_layers
+
+        assert coerce_layers(28.0) == [28]
+
+
 class TestAutoLayers:
     def test_small_model(self) -> None:
         from chuk_mcp_lazarus.tools.geometry.residual_map import _auto_layers

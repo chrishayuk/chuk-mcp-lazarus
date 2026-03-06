@@ -112,6 +112,7 @@ async def weight_geometry(
         return make_error(ToolError.MODEL_NOT_LOADED, "Call load_model() first.", "weight_geometry")
     meta = state.metadata
 
+    layer = int(layer)
     if layer < 0 or layer >= meta.num_layers:
         return make_error(
             ToolError.LAYER_OUT_OF_RANGE,

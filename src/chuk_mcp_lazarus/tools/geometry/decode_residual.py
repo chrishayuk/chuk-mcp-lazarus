@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from ...errors import ToolError, make_error
 from ...model_state import ModelState
 from ...server import mcp
-from ._helpers import _angle_between
+from ._helpers import _angle_between, coerce_layers
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +154,7 @@ async def decode_residual(
             "decode_residual",
         )
     meta = state.metadata
+    layers = coerce_layers(layers) or []
     if not layers:
         return make_error(
             ToolError.INVALID_INPUT,

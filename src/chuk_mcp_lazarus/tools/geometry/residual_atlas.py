@@ -19,7 +19,7 @@ from ...errors import ToolError, make_error
 from ...model_state import ModelState
 from ...server import mcp
 from ...subspace_registry import SubspaceMetadata, SubspaceRegistry
-from ._helpers import collect_activations, effective_dimensionality
+from ._helpers import coerce_layers, collect_activations, effective_dimensionality
 
 logger = logging.getLogger(__name__)
 
@@ -115,10 +115,7 @@ async def residual_atlas(
         return make_error(ToolError.MODEL_NOT_LOADED, "Call load_model() first.", "residual_atlas")
     meta = state.metadata
 
-    if isinstance(layers, int):
-        layers_list = [layers]
-    else:
-        layers_list = list(layers)
+    layers_list = coerce_layers(layers) or []
 
     if not layers_list:
         return make_error(ToolError.INVALID_INPUT, "At least 1 layer required.", "residual_atlas")
