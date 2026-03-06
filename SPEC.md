@@ -78,7 +78,10 @@ chuk-mcp-lazarus/
 │               ├── direction_angles.py    # direction_angles
 │               ├── subspace_decomposition.py  # subspace_decomposition
 │               ├── residual_trajectory.py # residual_trajectory
-│               └── feature_dimensionality.py  # feature_dimensionality
+│               ├── feature_dimensionality.py  # feature_dimensionality
+│               ├── computation_map.py     # computation_map
+│               ├── inject_residual.py     # inject_residual
+│               └── residual_match.py      # residual_match
 ├── tests/
 ├── pyproject.toml
 ├── ARCHITECTURE.md
@@ -1452,6 +1455,130 @@ async def feature_dimensionality(
     """
 ```
 
+#### `computation_map`
+
+```python
+@mcp.tool(read_only_hint=True)
+async def computation_map(
+    prompt: str,
+    candidates: list[str],
+    layers: list[int] | None = None,
+    top_k_heads: int = 3,
+    top_k_neurons: int = 5,
+    token_position: int = -1,
+) -> dict:
+    """Map the complete prediction flow for a prompt in one call.
+
+    Runs a single decomposition forward pass and returns per-layer:
+    residual geometry (angles to candidates), component attribution
+    (attention vs FFN logit deltas), logit lens race (probabilities),
+    top attention heads, and top MLP neurons.
+
+    Structured for rendering as a network flow diagram.
+
+    Args:
+        prompt:         Input text.
+        candidates:     Candidate tokens to track (e.g. ["Sydney", "Canberra"]).
+        layers:         Layer indices to analyse (None = auto-select).
+        top_k_heads:    Top attention heads per layer (default: 3).
+        top_k_neurons:  Top MLP neurons per layer (default: 5).
+        token_position: Token position to analyse (-1 = last).
+    """
+```
+
+#### `decode_residual`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def decode_residual(
+    prompt: str,
+    layers: list[int],
+    top_k: int = 20,
+    token_position: int = -1,
+    include_mean_decode: bool = True,
+) -> dict:
+    """Decode the residual stream into vocabulary space at specified
+    layers, showing both raw and normalised nearest neighbours.
+
+    For each layer, returns three views of the same residual stream:
+    1. Raw — dot product with unembedding vectors (before normalisation).
+    2. Normalised — after applying the model's actual layer norm.
+    3. Gap — rank changes between raw and normalised rankings.
+
+    Optionally decodes the mean direction itself — what the subtracted
+    common-mode signal "points at" in vocabulary space.
+
+    Args:
+        prompt:              Input text.
+        layers:              Layer indices to decode at.
+        top_k:               Number of top words per view (1-100).
+        token_position:      Token position (-1 = last).
+        include_mean_decode: Decode the mean direction (default: True).
+    """
+```
+
+#### `inject_residual`
+
+```python
+@mcp.tool()
+async def inject_residual(
+    donor_prompt: str,
+    recipient_prompt: str,
+    layer: int,
+    max_new_tokens: int = 50,
+    temperature: float = 0.0,
+    donor_position: int = -1,
+    recipient_position: int = -1,
+    subspace_only: bool = False,
+    subspace_tokens: list[str] | None = None,
+) -> dict:
+    """Inject the donor's residual stream into the recipient at a
+    specific layer and continue generation.
+
+    Tests the Markov property: if downstream layers depend only on
+    the current residual state, the injected output should match the
+    donor's output regardless of the recipient's earlier processing.
+
+    Args:
+        donor_prompt:      Prompt whose residual stream to inject.
+        recipient_prompt:  Prompt to receive the injection.
+        layer:             Layer at which to inject (0 to num_layers-1).
+        max_new_tokens:    Tokens to generate after injection (1-500).
+        temperature:       Sampling temperature (0 = greedy).
+        donor_position:    Token position in donor (-1 = last).
+        recipient_position: Token position in recipient (-1 = last).
+        subspace_only:     Only inject the subspace component.
+        subspace_tokens:   Tokens defining the injection subspace.
+    """
+```
+
+#### `residual_match`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def residual_match(
+    target_prompt: str,
+    candidate_prompts: list[str],
+    layer: int,
+    token_position: int = -1,
+    subspace_tokens: list[str] | None = None,
+) -> dict:
+    """Find which candidate prompts produce the most similar residual
+    stream to the target at a given layer.
+
+    Useful for finding natural test cases for the Markov property:
+    two prompts that arrive at similar states through different paths.
+
+    Args:
+        target_prompt:     Reference prompt.
+        candidate_prompts: 1-20 prompts to compare against.
+        layer:             Layer to compare at.
+        token_position:    Token position (-1 = last).
+        subspace_tokens:   Optional tokens defining a task-relevant
+                           subspace for separate similarity reporting.
+    """
+```
+
 ---
 
 ### Group 8 -- Resources
@@ -1631,4 +1758,4 @@ German."*
 
 ## Version
 
-`0.15.0` -- 51 tools, 4 resources, 13 demo scripts, 858 tests. Apache 2.0.
+`0.15.0` -- 52 tools, 4 resources, 13 demo scripts, 888 tests. Apache 2.0.

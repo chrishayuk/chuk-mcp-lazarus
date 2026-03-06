@@ -14,7 +14,7 @@ git clone https://github.com/chuk-ai/chuk-mcp-lazarus.git
 cd chuk-mcp-lazarus
 uv sync
 
-# Run the smoke test (53 tests on SmolLM2-135M, ~3 seconds)
+# Run the smoke test (55 tests on SmolLM2-135M, ~3 seconds)
 uv run python examples/smoke_test.py
 
 # Run the full 15-step language transition demo
@@ -37,7 +37,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 }
 ```
 
-## Tools (51)
+## Tools (55)
 
 | Group | Tool | Purpose |
 |-------|------|---------|
@@ -92,6 +92,10 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 | Geometry | `subspace_decomposition` | Decompose a vector into basis direction components + orthogonal residual |
 | Geometry | `residual_trajectory` | Track residual rotation through layers by angles to reference tokens |
 | Geometry | `feature_dimensionality` | PCA spectrum + classification-by-dimension for a feature |
+| Geometry | `decode_residual` | Decode residual stream into vocabulary space: raw vs normalised rankings, gap analysis, mean direction |
+| Geometry | `computation_map` | Complete prediction flow: geometry, attribution, logit lens race, top heads/neurons in one call |
+| Geometry | `inject_residual` | Inject donor residual into recipient at a layer and continue generation (Markov property test) |
+| Geometry | `residual_match` | Find candidate prompts with most similar residual streams to a target at a layer |
 
 ## Resources (4)
 
@@ -134,7 +138,7 @@ Smoke tests use **SmolLM2-135M** for speed.
 | `residual_stream_demo.py` | 4 tools -- residual decomposition and layer clustering | SmolLM2-135M |
 | `logit_attribution_demo.py` | 3 tools -- direct logit attribution (knowledge localization) | SmolLM2-135M |
 | `causal_tracing_demo.py` | 3 tools -- causal tracing (observation vs intervention) | SmolLM2-135M |
-| `smoke_test.py` | 53 tests -- validates all tools with error envelope coverage | SmolLM2-135M |
+| `smoke_test.py` | 55 tests -- validates all tools with error envelope coverage | SmolLM2-135M |
 
 ## The Demo: Language Transition Probing
 
@@ -219,7 +223,11 @@ src/chuk_mcp_lazarus/
         ├── direction_angles.py    # direction_angles
         ├── subspace_decomposition.py  # subspace_decomposition
         ├── residual_trajectory.py # residual_trajectory
-        └── feature_dimensionality.py  # feature_dimensionality
+        ├── feature_dimensionality.py  # feature_dimensionality
+        ├── decode_residual.py     # decode_residual
+        ├── computation_map.py     # computation_map
+        ├── inject_residual.py     # inject_residual
+        └── residual_match.py      # residual_match
 ```
 
 ## Development
