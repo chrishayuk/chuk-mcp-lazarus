@@ -103,6 +103,7 @@ class InjectResidualResult(BaseModel):
     donor_position: int
     recipient_position: int
     subspace_only: bool
+    patch_all_positions: bool
     donor_output: DonorRecipientOutput
     recipient_output: DonorRecipientOutput
     injected_output: InjectedOutput
@@ -221,14 +222,24 @@ def _run_forward_with_injection(
 
         # After target layer, inject
         if layer_idx == target_layer:
-            pos = target_position
-            if pos < 0:
-                pos = seq_len + pos
-            pos = max(0, min(pos, seq_len - 1))
-            before = h[:, :pos, :]
-            after = h[:, pos + 1 :, :]
-            injected = injection_vec.reshape(1, 1, -1)
-            h = mx.concatenate([before, injected, after], axis=1)
+            if injection_vec.ndim == 3:
+                # All-position mode: replace entire hidden state tensor
+                h = injection_vec
+                new_seq_len = h.shape[1]
+                if new_seq_len != seq_len:
+                    mask = nn.MultiHeadAttention.create_additive_causal_mask(new_seq_len)
+                    mask = mask.astype(h.dtype)
+                    seq_len = new_seq_len
+            else:
+                # Single-position mode: splice at target position
+                pos = target_position
+                if pos < 0:
+                    pos = seq_len + pos
+                pos = max(0, min(pos, seq_len - 1))
+                before = h[:, :pos, :]
+                after = h[:, pos + 1 :, :]
+                injected = injection_vec.reshape(1, 1, -1)
+                h = mx.concatenate([before, injected, after], axis=1)
 
     return h
 
@@ -323,6 +334,7 @@ async def inject_residual(
     recipient_position: int = -1,
     subspace_only: bool = False,
     subspace_tokens: list[str] | None = None,
+    patch_all_positions: bool = False,
 ) -> dict:
     """Inject the residual stream from one prompt into another at a
     specific layer and continue generation.
@@ -348,6 +360,10 @@ async def inject_residual(
         subspace_only:      Only inject the subspace component.
         subspace_tokens:    Tokens defining the injection subspace
                             (required if subspace_only=True).
+        patch_all_positions: If True, inject the donor's entire hidden
+                            state tensor across all positions, replacing
+                            the recipient's full residual stream at that
+                            layer.  Incompatible with subspace_only.
     """
     state = ModelState.get()
     if not state.is_loaded:
@@ -381,6 +397,12 @@ async def inject_residual(
             "subspace_tokens required when subspace_only=True.",
             "inject_residual",
         )
+    if patch_all_positions and subspace_only:
+        return make_error(
+            ToolError.INVALID_INPUT,
+            "patch_all_positions=True is incompatible with subspace_only=True.",
+            "inject_residual",
+        )
     if subspace_tokens and len(subspace_tokens) > 20:
         return make_error(
             ToolError.INVALID_INPUT,
@@ -403,6 +425,7 @@ async def inject_residual(
             recipient_position,
             subspace_only,
             subspace_tokens,
+            patch_all_positions,
         )
     except Exception as exc:
         logger.exception("inject_residual failed")
@@ -428,6 +451,7 @@ def _inject_residual_impl(
     recipient_position: int,
     subspace_only: bool,
     subspace_tokens: list[str] | None,
+    patch_all_positions: bool = False,
 ) -> dict:
     """Sync implementation of inject_residual."""
     import mlx.core as mx
@@ -547,7 +571,11 @@ def _inject_residual_impl(
     else:
         injection_np = donor_np.copy()
 
-    injection_vec = mx.array(injection_np.tolist())
+    if patch_all_positions:
+        # Full tensor [1, donor_seq, hidden_dim] — skip numpy round-trip
+        injection_vec = donor_decomp["hidden_states"][layer]
+    else:
+        injection_vec = mx.array(injection_np.tolist())
 
     # -- Phase 5: Run injected forward pass --
     injected_hidden = _run_forward_with_injection(
@@ -558,7 +586,8 @@ def _inject_residual_impl(
     # -- Phase 6: Get logits for all three --
     donor_logits = _norm_project(final_norm, lm_head, donor_vec_final)
     recip_logits = _norm_project(final_norm, lm_head, recip_vec_final)
-    injected_vec_final = _extract_position(injected_hidden, r_pos)
+    inject_logit_pos = -1 if patch_all_positions else r_pos
+    injected_vec_final = _extract_position(injected_hidden, inject_logit_pos)
     injected_logits = _norm_project(final_norm, lm_head, injected_vec_final)
     mx.eval(donor_logits, recip_logits, injected_logits)
 
@@ -582,14 +611,21 @@ def _inject_residual_impl(
     # -- Phase 8: Generate text --
     donor_text, _ = generate_text(model, tokenizer, donor_prompt, max_new_tokens, temperature)
     recip_text, _ = generate_text(model, tokenizer, recipient_prompt, max_new_tokens, temperature)
+    if patch_all_positions:
+        gen_ids = donor_ids
+        gen_pos = -1
+    else:
+        gen_ids = recip_ids
+        gen_pos = r_pos
+
     injected_text, _ = _generate_from_hidden(
         model,
         tokenizer,
         injected_hidden,
         final_norm,
         lm_head,
-        recip_ids,
-        r_pos,
+        gen_ids,
+        gen_pos,
         max_new_tokens,
         temperature,
     )
@@ -611,6 +647,9 @@ def _inject_residual_impl(
         "injected_top1": i_top1_tok,
         "residual_angle": residual_sim.angle,
     }
+    if patch_all_positions:
+        summary["donor_seq_len"] = num_donor
+        summary["recipient_seq_len"] = num_recip
     if subspace_result:
         summary["subspace_dim"] = subspace_result.subspace_dim
         summary["donor_subspace_fraction"] = subspace_result.donor_subspace_fraction
@@ -623,6 +662,7 @@ def _inject_residual_impl(
         donor_position=donor_position,
         recipient_position=recipient_position,
         subspace_only=subspace_only,
+        patch_all_positions=patch_all_positions,
         donor_output=DonorRecipientOutput(
             text=donor_text,
             top_prediction=d_top1_tok,

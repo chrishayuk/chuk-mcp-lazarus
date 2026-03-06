@@ -141,6 +141,51 @@ class TestInjectResidual:
             result = await inject_residual(donor_prompt="A", recipient_prompt="B", layer=0)
         assert result["error_type"] == "GeometryFailed"
 
+    @pytest.mark.asyncio
+    async def test_patch_all_with_subspace_only(self, loaded_model_state: Any) -> None:
+        from chuk_mcp_lazarus.tools.geometry.inject_residual import inject_residual
+
+        result = await inject_residual(
+            donor_prompt="A",
+            recipient_prompt="B",
+            layer=0,
+            subspace_only=True,
+            subspace_tokens=["alpha"],
+            patch_all_positions=True,
+        )
+        assert result["error_type"] == "InvalidInput"
+
+    @pytest.mark.asyncio
+    async def test_patch_all_success(self, loaded_model_state: Any) -> None:
+        from chuk_mcp_lazarus.tools.geometry.inject_residual import inject_residual
+
+        fake = {
+            "donor_prompt": "A",
+            "recipient_prompt": "B",
+            "layer": 0,
+            "donor_position": -1,
+            "recipient_position": -1,
+            "subspace_only": False,
+            "patch_all_positions": True,
+            "donor_output": {},
+            "recipient_output": {},
+            "injected_output": {},
+            "comparison": {},
+            "residual_similarity": {},
+            "summary": {"donor_seq_len": 3, "recipient_seq_len": 3},
+        }
+        with patch(
+            "chuk_mcp_lazarus.tools.geometry.inject_residual._inject_residual_impl",
+            return_value=fake,
+        ):
+            result = await inject_residual(
+                donor_prompt="A",
+                recipient_prompt="B",
+                layer=0,
+                patch_all_positions=True,
+            )
+        assert "error" not in result
+
 
 # ---------------------------------------------------------------------------
 # inject_residual — impl tests
@@ -165,6 +210,7 @@ class TestInjectResidualImpl:
         subspace_only: bool = False,
         subspace_tokens: list[str] | None = None,
         max_new_tokens: int = 5,
+        patch_all_positions: bool = False,
     ) -> dict:
         from chuk_mcp_lazarus.tools.geometry.inject_residual import (
             _inject_residual_impl,
@@ -296,6 +342,7 @@ class TestInjectResidualImpl:
                 -1,
                 subspace_only,
                 subspace_tokens,
+                patch_all_positions,
             )
 
     def test_output_keys(self) -> None:
@@ -424,6 +471,18 @@ class TestInjectResidualImpl:
         assert 0.0 <= r["donor_output"]["probability"] <= 1.0
         assert 0.0 <= r["recipient_output"]["probability"] <= 1.0
         assert 0.0 <= r["injected_output"]["probability"] <= 1.0
+
+    def test_patch_all_output_keys(self) -> None:
+        r = self._run(patch_all_positions=True)
+        assert "patch_all_positions" in r
+        assert r["patch_all_positions"] is True
+        assert "donor_seq_len" in r["summary"]
+        assert "recipient_seq_len" in r["summary"]
+
+    def test_patch_all_matches_donor(self) -> None:
+        r = self._run(patch_all_positions=True)
+        # INJECTED_LOGITS top-1 == token 0, DONOR_LOGITS top-1 == token 0
+        assert r["comparison"]["injected_matches_donor"] is True
 
 
 # ---------------------------------------------------------------------------
