@@ -85,7 +85,8 @@ chuk-mcp-lazarus/
 │               ├── compute_subspace.py    # compute_subspace, list_subspaces
 │               ├── residual_atlas.py      # residual_atlas
 │               ├── weight_geometry.py     # weight_geometry
-│               └── residual_map.py        # residual_map
+│               ├── residual_map.py        # residual_map
+│               └── branch_and_collapse.py # branch_and_collapse
 ├── tests/
 ├── pyproject.toml
 ├── ARCHITECTURE.md
@@ -1554,6 +1555,34 @@ async def inject_residual(
         recipient_position: Token position in recipient (-1 = last).
         subspace_only:     Only inject the subspace component.
         subspace_tokens:   Tokens defining the injection subspace.
+    """
+```
+
+#### `branch_and_collapse`
+
+```python
+@mcp.tool(read_only_hint=True)
+async def branch_and_collapse(
+    donor_prompt: str,
+    branch_prompts: list[str],
+    layer: int,
+    donor_layer: int | None = None,
+    token_position: int = -1,
+    top_k: int = 10,
+) -> dict:
+    """Non-collapsing superposition via parallel branch evolution.
+
+    Captures the residual stream from a donor prompt, injects it into
+    multiple template prompts (force fields), runs the remaining layers
+    independently, and collapses to the highest-confidence branch.
+
+    Args:
+        donor_prompt:    Prompt containing the uncollapsed superposition.
+        branch_prompts:  Template prompts (force fields) to evolve through (2-20).
+        layer:           Injection layer (into each branch template).
+        donor_layer:     Capture layer from donor (defaults to layer).
+        token_position:  Token position to inject/read (-1 = last).
+        top_k:           Predictions per branch (1-50).
     """
 ```
 

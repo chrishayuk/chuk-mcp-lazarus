@@ -155,7 +155,7 @@ tools/
   comparison_tools.py   load_comparison_model, compare_weights,
                         compare_representations, compare_attention,
                         compare_generations, unload_comparison_model
-  geometry/             Per-tool subpackage (14 tools)
+  geometry/             Per-tool subpackage (15 tools)
     _helpers.py           Shared enums, math, direction extraction,
                           PCA helpers (collect_activations,
                           effective_dimensionality)
@@ -172,6 +172,7 @@ tools/
     residual_atlas.py     residual_atlas
     weight_geometry.py    weight_geometry
     residual_map.py       residual_map
+    branch_and_collapse.py  branch_and_collapse
 ```
 
 Each layer has a single responsibility:
