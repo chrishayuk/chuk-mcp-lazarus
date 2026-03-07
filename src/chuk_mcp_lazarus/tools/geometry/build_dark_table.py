@@ -165,6 +165,7 @@ async def build_dark_table(
 
     num_layers = state.metadata.num_layers
     layer = int(layer)
+    token_position = int(token_position)
 
     if layer < 0 or layer >= num_layers:
         return make_error(

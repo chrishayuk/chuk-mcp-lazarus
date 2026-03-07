@@ -448,6 +448,10 @@ async def subspace_surgery(
                 "subspace_surgery",
             )
 
+    top_k = int(top_k)
+    max_new_tokens = int(max_new_tokens)
+    temperature = float(temperature)
+
     if top_k < 1 or top_k > 50:
         return make_error(
             ToolError.INVALID_INPUT,
