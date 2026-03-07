@@ -246,6 +246,53 @@ class TestInjectResidual:
         assert result["error_type"] == "InvalidInput"
 
     @pytest.mark.asyncio
+    async def test_donor_layer_out_of_range(self, loaded_model_state: Any) -> None:
+        from chuk_mcp_lazarus.tools.geometry.inject_residual import inject_residual
+
+        result = await inject_residual(
+            donor_prompt="A", recipient_prompt="B", layer=0, donor_layer=99
+        )
+        assert result["error_type"] == "LayerOutOfRange"
+        assert "donor_layer" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_donor_layer_negative(self, loaded_model_state: Any) -> None:
+        from chuk_mcp_lazarus.tools.geometry.inject_residual import inject_residual
+
+        result = await inject_residual(
+            donor_prompt="A", recipient_prompt="B", layer=0, donor_layer=-1
+        )
+        assert result["error_type"] == "LayerOutOfRange"
+
+    @pytest.mark.asyncio
+    async def test_donor_layer_as_string(self, loaded_model_state: Any) -> None:
+        from chuk_mcp_lazarus.tools.geometry.inject_residual import inject_residual
+
+        fake = {
+            "donor_prompt": "A",
+            "recipient_prompt": "B",
+            "layer": 0,
+            "donor_layer": 2,
+            "donor_position": -1,
+            "recipient_position": -1,
+            "subspace_only": False,
+            "donor_output": {},
+            "recipient_output": {},
+            "injected_output": {},
+            "comparison": {},
+            "residual_similarity": {},
+            "summary": {},
+        }
+        with patch(
+            "chuk_mcp_lazarus.tools.geometry.inject_residual._inject_residual_impl",
+            return_value=fake,
+        ):
+            result = await inject_residual(
+                donor_prompt="A", recipient_prompt="B", layer=0, donor_layer="2"
+            )
+        assert "error" not in result
+
+    @pytest.mark.asyncio
     async def test_patch_all_success(self, loaded_model_state: Any) -> None:
         from chuk_mcp_lazarus.tools.geometry.inject_residual import inject_residual
 
@@ -302,6 +349,7 @@ class TestInjectResidualImpl:
         subspace_name: str | None = None,
         max_new_tokens: int = 5,
         patch_all_positions: bool = False,
+        donor_layer: int | None = None,
     ) -> dict:
         from chuk_mcp_lazarus.tools.geometry.inject_residual import (
             _inject_residual_impl,
@@ -317,13 +365,13 @@ class TestInjectResidualImpl:
         meta.hidden_dim = DIM
         meta.num_layers = 4
 
-        # Decomposition: returns hidden states at layer 0 and layer 3
-        mock_hidden_0 = MagicMock()
-        mock_hidden_3 = MagicMock()
+        # Decomposition: returns hidden states at any requested layer
+        # Use a defaultdict-like pattern so any layer key works
+        mock_hidden_states: dict[int, Any] = {i: MagicMock() for i in range(meta.num_layers)}
 
         decomp = {
             "embeddings": MagicMock(),
-            "hidden_states": {0: mock_hidden_0, 3: mock_hidden_3},
+            "hidden_states": mock_hidden_states,
             "prev_hidden": {},
             "attn_outputs": {},
             "ffn_outputs": {},
@@ -427,6 +475,7 @@ class TestInjectResidualImpl:
                 "The capital of Australia is",
                 "The answer is",
                 0,
+                donor_layer,
                 max_new_tokens,
                 0.0,
                 -1,
@@ -619,6 +668,28 @@ class TestInjectResidualImpl:
         sa = r["subspace_analysis"]
         assert 0.0 <= sa["donor_subspace_fraction"] <= 1.0
         assert 0.0 <= sa["recipient_subspace_fraction"] <= 1.0
+
+    def test_donor_layer_in_output(self) -> None:
+        r = self._run(donor_layer=2)
+        assert r["donor_layer"] == 2
+
+    def test_donor_layer_none_defaults(self) -> None:
+        r = self._run(donor_layer=None)
+        assert r["donor_layer"] is None
+
+    def test_donor_layer_same_as_layer(self) -> None:
+        r = self._run(donor_layer=0)
+        assert r["donor_layer"] == 0
+        # Should work identically to donor_layer=None
+        assert "error" not in r
+
+    def test_donor_layer_summary(self) -> None:
+        r = self._run(donor_layer=2)
+        assert r["summary"]["donor_layer"] == 2
+
+    def test_donor_layer_no_summary_when_same(self) -> None:
+        r = self._run(donor_layer=0)
+        assert "donor_layer" not in r["summary"]
 
 
 # ---------------------------------------------------------------------------

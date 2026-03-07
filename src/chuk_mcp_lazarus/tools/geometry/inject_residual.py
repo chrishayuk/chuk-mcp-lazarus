@@ -102,6 +102,7 @@ class InjectResidualResult(BaseModel):
     donor_prompt: str
     recipient_prompt: str
     layer: int
+    donor_layer: int | None = None
     donor_position: int
     recipient_position: int
     subspace_only: bool
@@ -330,6 +331,7 @@ async def inject_residual(
     donor_prompt: str,
     recipient_prompt: str,
     layer: int,
+    donor_layer: int | None = None,
     max_new_tokens: int = 50,
     temperature: float = 0.0,
     donor_position: int = -1,
@@ -342,11 +344,10 @@ async def inject_residual(
     """Inject the residual stream from one prompt into another at a
     specific layer and continue generation.
 
-    Runs the donor prompt through layers 0-L to capture its residual
-    stream.  At layer L, replaces the recipient's residual with the
+    Runs the donor prompt to capture its residual stream.  At the
+    injection layer, replaces the recipient's residual with the
     donor's (full vector or subspace-only).  Then continues the
-    recipient's forward pass from layer L+1 to the final layer and
-    generates text.
+    recipient's forward pass to the final layer and generates text.
 
     This tests the Markov property: if downstream layers only care
     about the current residual state (not the history), the output
@@ -355,7 +356,11 @@ async def inject_residual(
     Args:
         donor_prompt:       Prompt whose residual is captured.
         recipient_prompt:   Prompt that receives the injected residual.
-        layer:              Layer at which to inject.
+        layer:              Layer at which to inject into the recipient.
+        donor_layer:        Layer at which to capture the donor's residual.
+                            Defaults to layer.  Use this to capture at a
+                            later layer (e.g. L33) and inject at an
+                            earlier layer (e.g. L24) for recirculation.
         max_new_tokens:     Tokens to generate after injection.
         temperature:        Sampling temperature (0 = greedy).
         donor_position:     Token position in donor (-1 = last).
@@ -379,10 +384,19 @@ async def inject_residual(
             "inject_residual",
         )
     meta = state.metadata
+    layer = int(layer)
     if layer < 0 or layer >= meta.num_layers:
         return make_error(
             ToolError.LAYER_OUT_OF_RANGE,
             f"Layer {layer} out of [0, {meta.num_layers - 1}].",
+            "inject_residual",
+        )
+    donor_layer = int(donor_layer) if donor_layer is not None else None
+    effective_donor_layer = donor_layer if donor_layer is not None else layer
+    if effective_donor_layer < 0 or effective_donor_layer >= meta.num_layers:
+        return make_error(
+            ToolError.LAYER_OUT_OF_RANGE,
+            f"donor_layer {effective_donor_layer} out of [0, {meta.num_layers - 1}].",
             "inject_residual",
         )
     if max_new_tokens < 1 or max_new_tokens > 500:
@@ -437,6 +451,7 @@ async def inject_residual(
             donor_prompt,
             recipient_prompt,
             layer,
+            donor_layer,
             max_new_tokens,
             temperature,
             donor_position,
@@ -464,6 +479,7 @@ def _inject_residual_impl(
     donor_prompt: str,
     recipient_prompt: str,
     layer: int,
+    donor_layer: int | None,
     max_new_tokens: int,
     temperature: float,
     donor_position: int,
@@ -509,18 +525,22 @@ def _inject_residual_impl(
         )
 
     last_layer = meta.num_layers - 1
-    capture_layers = sorted(set([layer, last_layer]))
+    effective_donor_layer = donor_layer if donor_layer is not None else layer
+    donor_capture_layers = sorted(set([effective_donor_layer, last_layer]))
+    recip_capture_layers = sorted(set([layer, last_layer]))
 
     # -- Phase 2: Capture donor state --
-    donor_decomp = _run_decomposition_forward(model, config, donor_ids, capture_layers)
+    donor_decomp = _run_decomposition_forward(model, config, donor_ids, donor_capture_layers)
     mx.eval(*donor_decomp["hidden_states"].values())
 
-    donor_vec_at_layer = _extract_position(donor_decomp["hidden_states"][layer], d_pos)
+    donor_vec_at_layer = _extract_position(
+        donor_decomp["hidden_states"][effective_donor_layer], d_pos
+    )
     donor_vec_final = _extract_position(donor_decomp["hidden_states"][last_layer], d_pos)
     donor_np = np.array(donor_vec_at_layer.tolist(), dtype=np.float32)
 
     # -- Phase 3: Capture recipient state --
-    recip_decomp = _run_decomposition_forward(model, config, recip_ids, capture_layers)
+    recip_decomp = _run_decomposition_forward(model, config, recip_ids, recip_capture_layers)
     mx.eval(*recip_decomp["hidden_states"].values())
 
     recip_vec_at_layer = _extract_position(recip_decomp["hidden_states"][layer], r_pos)
@@ -631,7 +651,7 @@ def _inject_residual_impl(
 
     if patch_all_positions:
         # Full tensor [1, donor_seq, hidden_dim] — skip numpy round-trip
-        injection_vec = donor_decomp["hidden_states"][layer]
+        injection_vec = donor_decomp["hidden_states"][effective_donor_layer]
     else:
         injection_vec = mx.array(injection_np.tolist())
 
@@ -705,6 +725,8 @@ def _inject_residual_impl(
         "injected_top1": i_top1_tok,
         "residual_angle": residual_sim.angle,
     }
+    if donor_layer is not None and donor_layer != layer:
+        summary["donor_layer"] = effective_donor_layer
     if patch_all_positions:
         summary["donor_seq_len"] = num_donor
         summary["recipient_seq_len"] = num_recip
@@ -717,6 +739,7 @@ def _inject_residual_impl(
         donor_prompt=donor_prompt,
         recipient_prompt=recipient_prompt,
         layer=layer,
+        donor_layer=donor_layer,
         donor_position=donor_position,
         recipient_position=recipient_position,
         subspace_only=subspace_only,

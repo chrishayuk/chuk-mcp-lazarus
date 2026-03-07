@@ -312,8 +312,8 @@ class TestResidualAtlasSummary:
         result = _run(layers=[0, 2])
         s = result["summary"]
         assert "per_layer_effective_rank_90pct" in s
-        assert 0 in s["per_layer_effective_rank_90pct"]
-        assert 2 in s["per_layer_effective_rank_90pct"]
+        assert "0" in s["per_layer_effective_rank_90pct"]
+        assert "2" in s["per_layer_effective_rank_90pct"]
 
     def test_concentrated_distributed(self) -> None:
         result = _run(layers=[0, 2])

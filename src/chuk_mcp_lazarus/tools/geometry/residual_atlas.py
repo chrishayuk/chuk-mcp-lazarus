@@ -313,7 +313,7 @@ def _residual_atlas_impl(
     summary: dict[str, Any] = {"stored": store_subspace is not None}
     if layer_results:
         per_layer_rank = {
-            lr.layer: lr.effective_dimensionality["dims_for_90pct"] for lr in layer_results
+            str(lr.layer): lr.effective_dimensionality["dims_for_90pct"] for lr in layer_results
         }
         summary["per_layer_effective_rank_90pct"] = per_layer_rank
         most_conc = min(

@@ -209,7 +209,7 @@ def _residual_map_impl(
     # -- Phase 3: Summary --
     summary: dict[str, Any] = {}
     if layer_summaries:
-        rank_progression = {ls.layer: ls.effective_rank_90 for ls in layer_summaries}
+        rank_progression = {str(ls.layer): ls.effective_rank_90 for ls in layer_summaries}
         summary["rank_progression_90pct"] = rank_progression
 
         peak = max(layer_summaries, key=lambda ls: ls.effective_rank_90)

@@ -1529,6 +1529,7 @@ async def inject_residual(
     donor_prompt: str,
     recipient_prompt: str,
     layer: int,
+    donor_layer: int | None = None,
     max_new_tokens: int = 50,
     temperature: float = 0.0,
     donor_position: int = -1,

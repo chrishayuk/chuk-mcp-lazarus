@@ -393,7 +393,7 @@ degrees as primary output. PCA projections optional and flagged as lossy.
 | `feature_dimensionality` | PCA spectrum + classification-by-dimension for a feature | SVD + sklearn LogisticRegression |
 | `decode_residual` | Decode residual stream into vocabulary space: raw vs normalised rankings, gap analysis, mean direction | Weight lookups + single forward pass |
 | `computation_map` | Complete prediction flow: geometry, attribution, logit lens race, top heads/neurons in one call | Single decomposition forward pass |
-| `inject_residual` | Inject donor residual into recipient at a layer and continue generation (Markov property test) | Manual forward pass with state replacement |
+| `inject_residual` | Inject donor residual into recipient at a layer and continue generation (Markov property test). `donor_layer` captures from a different layer than injection point (recirculation). | Manual forward pass with state replacement |
 | `residual_match` | Find candidate prompts with most similar residual streams to a target at a layer | Cosine similarity + optional subspace projection |
 | `compute_subspace` | PCA subspace from model activations across varied prompts — stores basis in SubspaceRegistry | SVD on centred activations |
 | `list_subspaces` | List all named PCA subspaces stored in the SubspaceRegistry | Pure registry read |
@@ -405,7 +405,7 @@ degrees as primary output. PCA projections optional and flagged as lossy.
 > with one file per tool and shared helpers in `_helpers.py`. This is the
 > first subpackage under `tools/` — future tool groups may follow the same pattern.
 
-**Status:** Steps 15--23 complete. **60 tools**, **1072 tests**, `make check` green.
+**Status:** Steps 15--23 complete. **60 tools**, **1086 tests**, `make check` green.
 
 Steps 13--14 (confidence/metacognition, external memory) remain valid
 but are deprioritized.
