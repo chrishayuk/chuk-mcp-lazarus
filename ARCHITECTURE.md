@@ -141,17 +141,24 @@ _extraction.py      Shared activation extraction helpers.
 tools/
   model_tools.py        load_model, get_model_info
   generation_tools.py   generate_text, predict_next_token, tokenize,
-                        logit_lens, track_token, embedding_neighbors
+                        logit_lens, track_token, track_race,
+                        embedding_neighbors
   activation_tools.py   extract_activations, compare_activations
   attention_tools.py    attention_pattern, attention_heads
   probe_tools.py        train_probe, evaluate_probe, scan_probe_across_layers,
-                        list_probes
+                        probe_at_inference, list_probes
   steering_tools.py     compute_steering_vector, steer_and_generate,
                         list_steering_vectors
   ablation_tools.py     ablate_layers, patch_activations
   causal_tools.py       trace_token, full_causal_trace
   residual_tools.py     residual_decomposition, layer_clustering,
                         logit_attribution, head_attribution, top_neurons
+  attribution_tools.py  attribution_sweep
+  intervention_tools.py component_intervention
+  neuron_tools.py       discover_neurons, analyze_neuron, neuron_trace
+  direction_tools.py    extract_direction
+  experiment_tools.py   create_experiment, add_experiment_result,
+                        get_experiment, list_experiments
   comparison_tools.py   load_comparison_model, compare_weights,
                         compare_representations, compare_attention,
                         compare_generations, unload_comparison_model

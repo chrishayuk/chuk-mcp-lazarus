@@ -13,7 +13,7 @@ tools we need to build, and the chuk-lazarus backend that supports them.
 
 ## The Gap: What We Have vs What We Need
 
-### What we have (46 tools)
+### What we have (61 tools)
 Comprehensive layer-level and component-level observation, intervention,
 and automated analysis. We can see what each layer produces (`logit_lens`,
 `extract_activations`), how layers relate (`compare_activations`,
@@ -30,8 +30,14 @@ downstream layers (`neuron_trace`), perform surgical component
 interventions (`component_intervention`), race multiple candidate tokens
 across layers (`track_race`), run batch attribution with per-prompt
 summaries (`attribution_sweep`), monitor probes during generation
-(`probe_at_inference`), and persist experiment results across sessions
-(`create_experiment`, `get_experiment`).
+(`probe_at_inference`), persist experiment results across sessions
+(`create_experiment`, `get_experiment`), map activation-space geometry
+in full native dimensionality (`token_space`, `direction_angles`,
+`residual_trajectory`, `decode_residual`, `computation_map`), inject
+donor residuals and test the Markov property (`inject_residual`), map
+supply and demand geometry via PCA (`residual_atlas`, `weight_geometry`,
+`residual_map`), and run non-collapsing superposition via parallel
+branch evolution (`branch_and_collapse`).
 
 ### What's missing for revolutionary work
 1. ~~**Multiple direction methods**~~ — ✅ Implemented. `extract_direction`

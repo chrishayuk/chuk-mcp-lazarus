@@ -37,7 +37,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 }
 ```
 
-## Tools (60)
+## Tools (61)
 
 | Group | Tool | Purpose |
 |-------|------|---------|
@@ -94,13 +94,14 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 | Geometry | `feature_dimensionality` | PCA spectrum + classification-by-dimension for a feature |
 | Geometry | `decode_residual` | Decode residual stream into vocabulary space: raw vs normalised rankings, gap analysis, mean direction |
 | Geometry | `computation_map` | Complete prediction flow: geometry, attribution, logit lens race, top heads/neurons in one call |
-| Geometry | `inject_residual` | Inject donor residual into recipient at a layer and continue generation (Markov property test) |
+| Geometry | `inject_residual` | Inject donor residual into recipient at a layer and continue generation (Markov property test). `donor_layer` captures from a different layer than injection point |
 | Geometry | `residual_match` | Find candidate prompts with most similar residual streams to a target at a layer |
 | Geometry | `compute_subspace` | PCA subspace from model activations across varied prompts — stores basis in SubspaceRegistry |
 | Geometry | `list_subspaces` | List all named PCA subspaces stored in the SubspaceRegistry |
 | Geometry | `residual_atlas` | Map residual stream via PCA on diverse prompts: variance spectrum, vocab-decoded principal components |
 | Geometry | `weight_geometry` | Map supply side: head/neuron push directions through unembedding, effective supply rank |
 | Geometry | `residual_map` | Compact per-layer variance spectrum across the full model (no vocab projection) |
+| Geometry | `branch_and_collapse` | Non-collapsing superposition: inject donor residual into multiple templates, evolve independently, collapse to highest confidence |
 
 ## Resources (4)
 
@@ -236,7 +237,8 @@ src/chuk_mcp_lazarus/
         ├── compute_subspace.py    # compute_subspace, list_subspaces
         ├── residual_atlas.py      # residual_atlas
         ├── weight_geometry.py     # weight_geometry
-        └── residual_map.py        # residual_map
+        ├── residual_map.py        # residual_map
+        └── branch_and_collapse.py # branch_and_collapse
 ```
 
 ## Development
