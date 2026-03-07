@@ -377,7 +377,7 @@ autoregressive generation to track internal state evolution token-by-token.
 Neuron influence tracing (`neuron_trace`). Trace a neuron's output direction
 through downstream layers via cosine similarity with residual, attention, and FFN states.
 
-**Status:** Steps 15--22 complete. **46 tools**, **772 tests**, `make check` green.
+**Status:** Steps 15--22 complete. **46 tools**, **772 tests**, `make check` green (at time of completion).
 
 #### Step 23: Geometry Tools ✅
 
@@ -401,12 +401,15 @@ degrees as primary output. PCA projections optional and flagged as lossy.
 | `weight_geometry` | Map supply side: head/neuron push directions through unembedding, effective supply rank | Weight extraction + batch lm_head projection |
 | `residual_map` | Compact per-layer variance spectrum across the full model (no vocab projection) | SVD per layer, effective dimensionality |
 | `branch_and_collapse` | Non-collapsing superposition: inject donor residual into multiple templates, evolve independently, collapse to highest confidence | Parallel `_run_forward_with_injection` + max-confidence selection |
+| `subspace_surgery` | All-position subspace replacement: swap entity subspace at every position while preserving orthogonal complement (donor/coordinates/lookup modes) | Vectorized subspace projection + `_run_forward_with_injection` |
+| `build_dark_table` | Precompute dark coordinate lookup table: project reference prompts onto a subspace for zero-pass injection | `extract_activation_at_layer` + subspace projection |
+| `list_dark_tables` | List all dark tables in the DarkTableRegistry | Pure registry read |
 
 > **Note:** Geometry tools are structured as a subpackage (`tools/geometry/`)
 > with one file per tool and shared helpers in `_helpers.py`. This is the
 > first subpackage under `tools/` — future tool groups may follow the same pattern.
 
-**Status:** Steps 15--23 complete. **61 tools**, **1109 tests**, `make check` green.
+**Status:** Steps 15--23 complete. **64 tools**, **1182 tests**, `make check` green.
 
 Steps 13--14 (confidence/metacognition, external memory) remain valid
 but are deprioritized.
@@ -743,11 +746,11 @@ If chuk-lazarus training capabilities are exposed:
 
 | Phase | Server | Tools |
 |-------|--------|-------|
-| 1+1b+1c+1d+1e | lazarus (core + extended + experiment-driven + geometry) | 61 |
+| 1+1b+1c+1d+1e | lazarus (core + extended + experiment-driven + geometry) | 64 |
 | 2 | tokenizer | 11 |
 | 3 | introspect | 7 |
 | 4 | moe | 20 |
-| **Total** | | **~99** |
+| **Total** | | **~102** |
 
 ---
 

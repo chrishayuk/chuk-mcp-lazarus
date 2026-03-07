@@ -86,7 +86,9 @@ chuk-mcp-lazarus/
 │               ├── residual_atlas.py      # residual_atlas
 │               ├── weight_geometry.py     # weight_geometry
 │               ├── residual_map.py        # residual_map
-│               └── branch_and_collapse.py # branch_and_collapse
+│               ├── branch_and_collapse.py # branch_and_collapse
+│               ├── subspace_surgery.py    # subspace_surgery
+│               └── build_dark_table.py    # build_dark_table, list_dark_tables
 ├── tests/
 ├── pyproject.toml
 ├── ARCHITECTURE.md
@@ -1586,6 +1588,99 @@ async def branch_and_collapse(
     """
 ```
 
+#### `subspace_surgery`
+
+```python
+@mcp.tool()
+async def subspace_surgery(
+    recipient_prompt: str,
+    layer: int,
+    subspace_name: str,
+    mode: str,
+    donor_prompt: str | None = None,
+    donor_layer: int | None = None,
+    coordinates: list[float] | None = None,
+    lookup_key: str | None = None,
+    table_name: str | None = None,
+    max_new_tokens: int = 50,
+    temperature: float = 0.0,
+    top_k: int = 10,
+) -> dict:
+    """All-position subspace replacement in the residual stream.
+
+    Replaces ONLY the subspace component at ALL positions while preserving
+    the orthogonal complement.  Three modes:
+
+    * **donor** — transplant another prompt's subspace projection.
+      Requires `donor_prompt`.  Optional `donor_layer` (defaults to `layer`).
+    * **coordinates** — inject explicit subspace coordinates.
+      Requires `coordinates` (list of floats, length = subspace rank).
+    * **lookup** — inject precomputed coordinates from a dark table.
+      Requires `lookup_key` and `table_name`.
+
+    Call compute_subspace first to create the PCA subspace.
+    Call build_dark_table first to create lookup tables.
+
+    Verification: orthogonal_cosine should be ~1.0 (surgery didn't touch
+    anything outside the subspace).
+
+    Args:
+        recipient_prompt: Prompt to perform surgery on.
+        layer:            Layer to perform surgery at.
+        subspace_name:    Named PCA subspace from SubspaceRegistry.
+        mode:             "donor" | "coordinates" | "lookup".
+        donor_prompt:     Prompt to transplant from (donor mode).
+        donor_layer:      Donor capture layer (defaults to layer).
+        coordinates:      Explicit subspace coordinates (coordinates mode).
+        lookup_key:       Key in dark table (lookup mode).
+        table_name:       Dark table name (lookup mode).
+        max_new_tokens:   Tokens to generate after surgery (1-500).
+        temperature:      Sampling temperature (0.0 = greedy).
+        top_k:            Predictions to return (1-50).
+    """
+```
+
+#### `build_dark_table`
+
+```python
+@mcp.tool()
+async def build_dark_table(
+    table_name: str,
+    subspace_name: str,
+    layer: int,
+    entries: dict[str, str],
+    token_position: int = -1,
+) -> dict:
+    """Precompute dark coordinate lookup table.
+
+    For each entry (key → prompt), extracts the hidden state at the given
+    layer, projects onto the named PCA subspace, and stores the resulting
+    [rank]-dimensional coordinate vector.  These coordinates can be injected
+    via subspace_surgery(mode="lookup") with zero extra forward passes.
+
+    Call compute_subspace first to create the PCA subspace.
+    Call subspace_surgery(mode="lookup") after to inject stored coordinates.
+
+    Args:
+        table_name:      Name for this dark table.
+        subspace_name:   Named PCA subspace from SubspaceRegistry.
+        layer:           Layer to extract activations at.
+        entries:         Key → prompt mapping (1-200 entries).
+        token_position:  Token position (-1 = last).
+    """
+```
+
+#### `list_dark_tables`
+
+```python
+@mcp.tool(read_only_hint=True, idempotent_hint=True)
+async def list_dark_tables() -> dict:
+    """List all dark tables in the DarkTableRegistry.
+
+    Returns table names, subspace associations, entry counts, and timestamps.
+    """
+```
+
 #### `residual_match`
 
 ```python
@@ -1757,7 +1852,7 @@ def comparison_state_resource() -> dict:
 
 ## State Management
 
-Four in-memory singletons, each with a `threading.Lock`:
+Seven in-memory singletons, each with a `threading.Lock`:
 
 | Singleton | Contents | Thread-Safe |
 |-----------|----------|-------------|
@@ -1765,6 +1860,9 @@ Four in-memory singletons, each with a `threading.Lock`:
 | `ProbeRegistry` | `{name: (sklearn_model, ProbeMetadata)}` | Yes |
 | `SteeringVectorRegistry` | `{name: (np.ndarray, VectorMetadata)}` | Yes |
 | `ComparisonState` | Second MLX model for comparison | Yes |
+| `ExperimentStore` | Cross-session experiment persistence | Yes |
+| `SubspaceRegistry` | `{name: (np.ndarray[rank, hidden_dim], SubspaceMetadata)}` | Yes |
+| `DarkTableRegistry` | `{name: (dict[str, np.ndarray[rank]], DarkTableMetadata)}` | Yes |
 
 All state is lost when the server process restarts. Persistence is a
 v1.0 concern.

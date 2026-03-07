@@ -128,6 +128,12 @@ steering_store.py   SteeringVectorRegistry singleton.
 comparison_state.py ComparisonState singleton.
                     Holds a second model for two-model comparison.
 
+subspace_registry.py SubspaceRegistry singleton.
+                    PCA subspace bases for geometry tools.
+
+dark_table_registry.py DarkTableRegistry singleton.
+                    Precomputed dark coordinate lookup tables.
+
 resources.py        MCP resources (model://info, probes://registry,
                     vectors://registry, comparisons://state).
                     Read-only state views.
@@ -162,7 +168,7 @@ tools/
   comparison_tools.py   load_comparison_model, compare_weights,
                         compare_representations, compare_attention,
                         compare_generations, unload_comparison_model
-  geometry/             Per-tool subpackage (15 tools)
+  geometry/             Per-tool subpackage (18 tools)
     _helpers.py           Shared enums, math, direction extraction,
                           PCA helpers (collect_activations,
                           effective_dimensionality)
@@ -180,6 +186,8 @@ tools/
     weight_geometry.py    weight_geometry
     residual_map.py       residual_map
     branch_and_collapse.py  branch_and_collapse
+    subspace_surgery.py   subspace_surgery
+    build_dark_table.py   build_dark_table, list_dark_tables
 ```
 
 Each layer has a single responsibility:
@@ -200,7 +208,7 @@ Tool functions are **pure translations**: they read parameters, delegate
 to chuk-lazarus, convert the result to a JSON-safe dict, and return.
 They hold no state themselves.
 
-All mutable state lives in exactly four singletons:
+All mutable state lives in singletons:
 
 | Singleton | Owns |
 |-----------|------|
@@ -208,6 +216,9 @@ All mutable state lives in exactly four singletons:
 | `ProbeRegistry` | Trained sklearn probes + accuracy metadata |
 | `SteeringVectorRegistry` | Computed steering vectors + separability metadata |
 | `ComparisonState` | Second model for two-model comparison |
+| `ExperimentStore` | Cross-session experiment persistence |
+| `SubspaceRegistry` | PCA subspace bases (np.ndarray[rank, hidden_dim]) |
+| `DarkTableRegistry` | Precomputed dark coordinate lookup tables |
 
 Singletons are plain Python classes with `threading.Lock` for thread
 safety. Their **internal state and metadata** are Pydantic models

@@ -13,7 +13,7 @@ tools we need to build, and the chuk-lazarus backend that supports them.
 
 ## The Gap: What We Have vs What We Need
 
-### What we have (61 tools)
+### What we have (64 tools)
 Comprehensive layer-level and component-level observation, intervention,
 and automated analysis. We can see what each layer produces (`logit_lens`,
 `extract_activations`), how layers relate (`compare_activations`,

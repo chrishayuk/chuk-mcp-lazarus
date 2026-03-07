@@ -1,7 +1,7 @@
 # Experiment Use Cases
 
 Experiments and discoveries an AI agent can make autonomously using
-chuk-mcp-lazarus's 61 tools. Each experiment is a multi-step workflow
+chuk-mcp-lazarus's 64 tools. Each experiment is a multi-step workflow
 where the agent forms hypotheses, designs tests, and iterates based
 on results.
 

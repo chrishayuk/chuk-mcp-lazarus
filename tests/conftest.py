@@ -658,6 +658,7 @@ from chuk_mcp_lazarus.experiment_store import ExperimentStore  # noqa: E402
 from chuk_mcp_lazarus.probe_store import ProbeRegistry  # noqa: E402
 from chuk_mcp_lazarus.steering_store import SteeringVectorRegistry  # noqa: E402
 from chuk_mcp_lazarus.subspace_registry import SubspaceRegistry  # noqa: E402
+from chuk_mcp_lazarus.dark_table_registry import DarkTableRegistry  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -804,3 +805,4 @@ def reset_singletons() -> Any:
     ProbeRegistry._instance = None
     SteeringVectorRegistry._instance = None
     SubspaceRegistry._instance = None
+    DarkTableRegistry._instance = None

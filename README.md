@@ -37,7 +37,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 }
 ```
 
-## Tools (61)
+## Tools (64)
 
 | Group | Tool | Purpose |
 |-------|------|---------|
@@ -102,6 +102,9 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 | Geometry | `weight_geometry` | Map supply side: head/neuron push directions through unembedding, effective supply rank |
 | Geometry | `residual_map` | Compact per-layer variance spectrum across the full model (no vocab projection) |
 | Geometry | `branch_and_collapse` | Non-collapsing superposition: inject donor residual into multiple templates, evolve independently, collapse to highest confidence |
+| Geometry | `subspace_surgery` | All-position subspace replacement: swap entity subspace at every position while preserving orthogonal complement (donor/coordinates/lookup modes) |
+| Geometry | `build_dark_table` | Precompute dark coordinate lookup table: project reference prompts onto a subspace for zero-pass injection |
+| Geometry | `list_dark_tables` | List all dark tables in the DarkTableRegistry |
 
 ## Resources (4)
 
@@ -200,6 +203,7 @@ src/chuk_mcp_lazarus/
 ├── probe_store.py       # ProbeRegistry singleton
 ├── steering_store.py    # SteeringVectorRegistry singleton
 ├── comparison_state.py  # ComparisonState singleton (2nd model)
+├── dark_table_registry.py # DarkTableRegistry singleton (precomputed coordinates)
 ├── resources.py         # MCP resources (4 resources)
 ├── errors.py            # Error types + envelope helper (17 error types)
 ├── _bootstrap.py        # Optional dependency stubs
@@ -238,7 +242,9 @@ src/chuk_mcp_lazarus/
         ├── residual_atlas.py      # residual_atlas
         ├── weight_geometry.py     # weight_geometry
         ├── residual_map.py        # residual_map
-        └── branch_and_collapse.py # branch_and_collapse
+        ├── branch_and_collapse.py # branch_and_collapse
+        ├── subspace_surgery.py    # subspace_surgery
+        └── build_dark_table.py    # build_dark_table, list_dark_tables
 ```
 
 ## Development
