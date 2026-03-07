@@ -18,6 +18,7 @@ Core operation (vectorised across positions):
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 import numpy as np
@@ -412,6 +413,16 @@ async def subspace_surgery(
                 "coordinates required for coordinates mode.",
                 "subspace_surgery",
             )
+        # MCP may send coordinates as a JSON string
+        if isinstance(coordinates, str):
+            try:
+                coordinates = json.loads(coordinates)
+            except (json.JSONDecodeError, TypeError):
+                return make_error(
+                    ToolError.INVALID_INPUT,
+                    "coordinates must be a JSON array of floats.",
+                    "subspace_surgery",
+                )
         sub_entry = SubspaceRegistry.get().fetch(subspace_name)
         if sub_entry is not None:
             expected_rank = int(sub_entry[0].shape[0])

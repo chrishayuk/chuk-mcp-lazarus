@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 from typing import Any
 
 import numpy as np
@@ -185,6 +186,23 @@ async def build_dark_table(
         return make_error(
             ToolError.VECTOR_NOT_FOUND,
             f"Subspace '{subspace_name}' not found. Call compute_subspace first.",
+            "build_dark_table",
+        )
+
+    # MCP may send entries as a JSON string — deserialize if needed
+    if isinstance(entries, str):
+        try:
+            entries = json.loads(entries)
+        except (json.JSONDecodeError, TypeError):
+            return make_error(
+                ToolError.INVALID_INPUT,
+                "entries must be a JSON object mapping keys to prompts.",
+                "build_dark_table",
+            )
+    if not isinstance(entries, dict):
+        return make_error(
+            ToolError.INVALID_INPUT,
+            "entries must be a dict mapping keys to prompts.",
             "build_dark_table",
         )
 
