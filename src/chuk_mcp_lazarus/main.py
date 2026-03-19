@@ -50,7 +50,10 @@ def main() -> None:
         registered_tools = mcp.get_tools()
         registered_resources = mcp.get_resources()
 
-        print("Lazarus Interpretability Server v0.9.0", file=sys.stdout)
+        from importlib.metadata import version as _pkg_version
+
+        _ver = _pkg_version("chuk-mcp-lazarus")
+        print(f"Lazarus Interpretability Server v{_ver}", file=sys.stdout)
         print("=" * 50, file=sys.stdout)
         print(f"Tools ({len(registered_tools)}):", file=sys.stdout)
         for tool in registered_tools:

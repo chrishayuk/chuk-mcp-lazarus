@@ -140,7 +140,7 @@ class TestDiscoverNeurons:
             "neurons": [],
         }
         with patch(
-            "chuk_mcp_lazarus.tools.neuron_tools._discover_neurons_impl",
+            "chuk_mcp_lazarus.tools.neuron.tools._discover_neurons_impl",
             return_value=fake_result,
         ):
             result = await discover_neurons(
@@ -155,7 +155,7 @@ class TestDiscoverNeurons:
     @pytest.mark.asyncio
     async def test_exception_returns_extraction_failed(self, loaded_model_state) -> None:
         with patch(
-            "chuk_mcp_lazarus.tools.neuron_tools._discover_neurons_impl",
+            "chuk_mcp_lazarus.tools.neuron.tools._discover_neurons_impl",
             side_effect=RuntimeError("boom"),
         ):
             result = await discover_neurons(
@@ -180,7 +180,7 @@ class TestDiscoverNeuronsImpl:
         """Result dict must have the expected top-level keys."""
         vec = _make_deterministic_vector(0)
         with patch(
-            "chuk_mcp_lazarus.tools.neuron_tools.extract_activation_at_layer",
+            "chuk_mcp_lazarus.tools.neuron.tools.extract_activation_at_layer",
             return_value=vec,
         ):
             result = _discover_neurons_impl(
@@ -235,7 +235,7 @@ class TestDiscoverNeuronsImpl:
         vectors = {"p1": pos1, "p2": pos2, "n1": neg1, "n2": neg2}
 
         with patch(
-            "chuk_mcp_lazarus.tools.neuron_tools.extract_activation_at_layer",
+            "chuk_mcp_lazarus.tools.neuron.tools.extract_activation_at_layer",
             side_effect=_make_extraction_side_effect(vectors),
         ):
             result = _discover_neurons_impl(
@@ -271,7 +271,7 @@ class TestDiscoverNeuronsImpl:
         vectors = {"p": pos_vec, "n": neg_vec}
 
         with patch(
-            "chuk_mcp_lazarus.tools.neuron_tools.extract_activation_at_layer",
+            "chuk_mcp_lazarus.tools.neuron.tools.extract_activation_at_layer",
             side_effect=_make_extraction_side_effect(vectors),
         ):
             result = _discover_neurons_impl(
@@ -297,7 +297,7 @@ class TestDiscoverNeuronsImpl:
         """top_k=2 should return exactly 2 neurons even if hidden_dim is 64."""
         vec = _make_deterministic_vector(42)
         with patch(
-            "chuk_mcp_lazarus.tools.neuron_tools.extract_activation_at_layer",
+            "chuk_mcp_lazarus.tools.neuron.tools.extract_activation_at_layer",
             return_value=vec,
         ):
             result = _discover_neurons_impl(
@@ -323,7 +323,7 @@ class TestDiscoverNeuronsImpl:
         vectors = {"pos": pos_vec, "neg": neg_vec}
 
         with patch(
-            "chuk_mcp_lazarus.tools.neuron_tools.extract_activation_at_layer",
+            "chuk_mcp_lazarus.tools.neuron.tools.extract_activation_at_layer",
             side_effect=_make_extraction_side_effect(vectors),
         ):
             result = _discover_neurons_impl(
@@ -420,7 +420,7 @@ class TestAnalyzeNeuron:
             "prompts": ["a", "b"],
         }
         with patch(
-            "chuk_mcp_lazarus.tools.neuron_tools._analyze_neuron_impl",
+            "chuk_mcp_lazarus.tools.neuron.tools._analyze_neuron_impl",
             return_value=fake_result,
         ):
             result = await analyze_neuron(layer=0, neuron_indices=[0, 1], prompts=["a", "b"])
@@ -430,7 +430,7 @@ class TestAnalyzeNeuron:
     @pytest.mark.asyncio
     async def test_exception_returns_extraction_failed(self, loaded_model_state) -> None:
         with patch(
-            "chuk_mcp_lazarus.tools.neuron_tools._analyze_neuron_impl",
+            "chuk_mcp_lazarus.tools.neuron.tools._analyze_neuron_impl",
             side_effect=ValueError("extraction kaboom"),
         ):
             result = await analyze_neuron(layer=0, neuron_indices=[0], prompts=["hello"])
@@ -451,7 +451,7 @@ class TestAnalyzeNeuronImpl:
         """Result dict must have the expected top-level keys."""
         vec = _make_deterministic_vector(0)
         with patch(
-            "chuk_mcp_lazarus.tools.neuron_tools.extract_activation_at_layer",
+            "chuk_mcp_lazarus.tools.neuron.tools.extract_activation_at_layer",
             return_value=vec,
         ):
             result = _analyze_neuron_impl(
@@ -486,7 +486,7 @@ class TestAnalyzeNeuronImpl:
         vectors = {"prompt_a": vec_a, "prompt_b": vec_b}
 
         with patch(
-            "chuk_mcp_lazarus.tools.neuron_tools.extract_activation_at_layer",
+            "chuk_mcp_lazarus.tools.neuron.tools.extract_activation_at_layer",
             side_effect=_make_extraction_side_effect(vectors),
         ):
             result = _analyze_neuron_impl(
@@ -527,7 +527,7 @@ class TestAnalyzeNeuronImpl:
         vectors = {"p1": vec_a, "p2": vec_b}
 
         with patch(
-            "chuk_mcp_lazarus.tools.neuron_tools.extract_activation_at_layer",
+            "chuk_mcp_lazarus.tools.neuron.tools.extract_activation_at_layer",
             side_effect=_make_extraction_side_effect(vectors),
         ):
             result = _analyze_neuron_impl(
@@ -559,7 +559,7 @@ class TestAnalyzeNeuronImpl:
         """When detailed=False, per_prompt_activations should be excluded (exclude_none)."""
         vec = _make_deterministic_vector(7)
         with patch(
-            "chuk_mcp_lazarus.tools.neuron_tools.extract_activation_at_layer",
+            "chuk_mcp_lazarus.tools.neuron.tools.extract_activation_at_layer",
             return_value=vec,
         ):
             result = _analyze_neuron_impl(
@@ -631,7 +631,7 @@ class TestNeuronTrace:
             "summary": {},
         }
         with patch(
-            "chuk_mcp_lazarus.tools.neuron_tools._neuron_trace_impl",
+            "chuk_mcp_lazarus.tools.neuron.tools._neuron_trace_impl",
             return_value=mock_result,
         ):
             result = await neuron_trace(
@@ -652,7 +652,7 @@ class TestNeuronTrace:
             "summary": {},
         }
         with patch(
-            "chuk_mcp_lazarus.tools.neuron_tools._neuron_trace_impl",
+            "chuk_mcp_lazarus.tools.neuron.tools._neuron_trace_impl",
             return_value=mock_result,
         ):
             result = await neuron_trace(prompt="hello", layer=0, neuron_index=5)
@@ -661,7 +661,7 @@ class TestNeuronTrace:
     @pytest.mark.asyncio
     async def test_exception_returns_error(self, loaded_model_state: MagicMock) -> None:
         with patch(
-            "chuk_mcp_lazarus.tools.neuron_tools._neuron_trace_impl",
+            "chuk_mcp_lazarus.tools.neuron.tools._neuron_trace_impl",
             side_effect=RuntimeError("trace failed"),
         ):
             result = await neuron_trace(prompt="hello", layer=0, neuron_index=5, target_layers=[1])
@@ -750,15 +750,15 @@ class TestNeuronTraceImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus._residual_helpers._run_decomposition_forward",
                 return_value=decomp_result,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._project_to_logits",
+                "chuk_mcp_lazarus._residual_helpers._project_to_logits",
                 return_value=mx.array(np.random.randn(100).astype(np.float32)),
             ),
         ):

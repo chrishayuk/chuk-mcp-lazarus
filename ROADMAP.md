@@ -16,7 +16,7 @@ capabilities to reasoning models.
 
 Claude Desktop can run the lightweight servers (tokenizer, introspect)
 always-on, and spin up the heavy servers (lazarus, moe) only when
-doing interpretability work.
+doing interpretability work
 
 ---
 
@@ -36,19 +36,19 @@ chuk-lazarus supports.
 - `pyproject.toml`, package structure, entry point
 - `server.py` -- ChukMCPServer instance
 - `model_state.py` -- ModelState singleton wrapping UnifiedPipeline
-- `tools/model_tools.py` -- `load_model`, `get_model_info`
+- `tools/model/` -- `load_model`, `get_model_info`
 - Verify: load TranslateGemma 4B, return architecture metadata
 
 #### Step 2: Activation Extraction ✅
 - `_serialize.py` -- mx.array to JSON-safe conversion
-- `tools/activation_tools.py` -- `extract_activations`, `compare_activations`
+- `tools/activation/` -- `extract_activations`, `compare_activations`
 - Uses `ModelHooks` + `CaptureConfig` from chuk-lazarus
 - `compare_activations` adds cosine similarity matrix + PCA projection
 - Verify: extract activations at layers 0, 16, 33 for a prompt
 
 #### Step 3: Probing ✅
 - `probe_store.py` -- ProbeRegistry singleton
-- `tools/probe_tools.py` -- `train_probe`, `evaluate_probe`,
+- `tools/probe/` -- `train_probe`, `evaluate_probe`,
   `scan_probe_across_layers`, `list_probes`
 - `scan_probe_across_layers` is the key demo tool: trains a probe at
   every layer in one call, returns accuracy curve + crossover layer
@@ -57,7 +57,7 @@ chuk-lazarus supports.
 
 #### Step 4: Steering ✅
 - `steering_store.py` -- SteeringVectorRegistry singleton
-- `tools/steering_tools.py` -- `compute_steering_vector`,
+- `tools/steering/` -- `compute_steering_vector`,
   `steer_and_generate`, `list_steering_vectors`
 - Uses `ActivationSteering` from chuk-lazarus for contrastive
   activation addition (CAA)
@@ -65,7 +65,7 @@ chuk-lazarus supports.
 - Verify: steer a "Translate to French" prompt toward German
 
 #### Step 5: Ablation ✅
-- `tools/ablation_tools.py` -- `ablate_layers`, `patch_activations`
+- `tools/causal/` -- `ablate_layers`, `patch_activations`
 - Uses `AblationStudy` and `CounterfactualIntervention` from chuk-lazarus
 - Verify: ablate the crossover layer, observe disrupted translation
 
@@ -81,7 +81,7 @@ End-to-end demo script runs the Claude workflow.
 #### Step 6b: Model Comparison ✅
 - `comparison_state.py` -- ComparisonState singleton (second model)
 - `_compare.py` -- Shared comparison kernels (weight, activation, attention)
-- `tools/comparison_tools.py` -- `load_comparison_model`, `compare_weights`,
+- `tools/comparison/` -- `load_comparison_model`, `compare_weights`,
   `compare_representations`, `compare_attention`, `unload_comparison_model`
 - Resource: `comparisons://state`
 - Demo: `examples/comparison_demo.py` (Gemma 3 4B vs TranslateGemma 4B)
@@ -91,10 +91,10 @@ End-to-end demo script runs the Claude workflow.
 to find where fine-tuning changes weights, activations, and attention patterns.
 
 #### Step 6c: Generation & Prediction Tools ✅
-- `tools/generation_tools.py` -- `generate_text`, `predict_next_token`,
+- `tools/generation/` -- `generate_text`, `predict_next_token`,
   `tokenize`, `logit_lens`
 - `_generate.py` -- Shared text generation helper (used by generation and steering tools)
-- `compare_generations` added to `tools/comparison_tools.py`
+- `compare_generations` added to `tools/comparison/`
 - Language transition demo expanded to 13 steps (was 10): added tokenize,
   generate_text, logit_lens
 - Comparison demo expanded to 7 steps (was 6): added compare_generations
@@ -104,8 +104,8 @@ let Claude see model I/O (tokenization, text generation, next-token predictions)
 and watch predictions evolve layer-by-layer via logit lens.
 
 #### Step 6d: Token Tracking & Attention Inspection ✅
-- `tools/generation_tools.py` -- `track_token` (track specific token probability across layers)
-- `tools/attention_tools.py` -- `attention_pattern`, `attention_heads`
+- `tools/generation/` -- `track_token` (track specific token probability across layers)
+- `tools/attention/` -- `attention_pattern`, `attention_heads`
 - `track_token` uses logit lens to follow a target token's probability and rank
 - `attention_pattern` extracts per-head attention weights via manual Q*K+RoPE
 - `attention_heads` computes per-head entropy (focused vs diffuse attention)
@@ -115,7 +115,7 @@ and watch predictions evolve layer-by-layer via logit lens.
 complete. Attention tools reuse `_compute_attention_weights` from `_compare.py`.
 
 #### Step 6e: Causal Tracing ✅
-- `tools/causal_tools.py` -- `trace_token`, `full_causal_trace`
+- `tools/causal/` -- `trace_token`, `full_causal_trace`
 - `trace_token` ablates each layer and measures effect on target token probability
 - `full_causal_trace` produces position × layer causal heatmap (Meng et al. style)
 - Demo: `examples/causal_tracing_demo.py`
@@ -124,7 +124,7 @@ complete. Attention tools reuse `_compute_attention_weights` from `_compare.py`.
 **Status:** 28 tools + 4 resources. 36/36 smoke tests passing.
 
 #### Step 6f: Residual Stream Analysis ✅
-- `tools/residual_tools.py` -- `residual_decomposition`, `layer_clustering`
+- `tools/residual/` -- `residual_decomposition`, `layer_clustering`
 - `residual_decomposition` manually unrolls forward pass to separate attention vs MLP
 - `layer_clustering` computes cosine similarity and cluster separation across layers
 - Demo: `examples/residual_stream_demo.py`
@@ -132,19 +132,19 @@ complete. Attention tools reuse `_compute_attention_weights` from `_compare.py`.
 **Status:** 30 tools + 4 resources. 40/40 smoke tests passing.
 
 #### Step 6g: Logit Attribution ✅
-- `tools/residual_tools.py` -- `logit_attribution` (direct logit attribution)
+- `tools/residual/` -- `logit_attribution` (direct logit attribution)
 - Per-layer attention + MLP contribution to predicted token's logit
 - Demo: `examples/logit_attribution_demo.py`
 
 **Status:** 31 tools + 4 resources. 42/42 smoke tests passing.
 
 #### Step 6h: Deep Interpretability Tools ✅
-- `tools/residual_tools.py` -- `head_attribution`, `top_neurons`
-- `tools/generation_tools.py` -- `embedding_neighbors`
+- `tools/residual/` -- `head_attribution`, `top_neurons`
+- `tools/generation/` -- `embedding_neighbors`
 - `head_attribution` decomposes attention output through `o_proj` per head
 - `top_neurons` computes per-neuron MLP contributions via SwiGLU decomposition
 - `embedding_neighbors` finds nearest tokens by cosine similarity in embedding space
-- Shared helpers: `_get_unembed_vector()`, `_resolve_target_token()` in residual_tools.py
+- Shared helpers: `_get_unembed_vector()`, `_resolve_target_token()` in `tools/residual/`
 - Shared extraction: `_extraction.py` consolidates duplicate activation extraction
 - Demo: `examples/deep_dive_demo.py`
 
@@ -168,8 +168,8 @@ across all tools. Shared comparison guard `_require_comparison_models()`.
 
 | Coverage | Files |
 |----------|-------|
-| 100% | `__init__`, `_bootstrap`, `_extraction`, `_serialize`, `errors`, `model_state`, `probe_store`, `resources`, `server`, `steering_store`, `tools/__init__`, `ablation_tools`, `attention_tools`, `probe_tools`, `residual_tools` |
-| 90--99% | `comparison_state` (99%), `activation_tools` (98%), `generation_tools` (94%), `steering_tools` (92%), `_generate` (92%), `_compare` (91%), `causal_tools` (91%), `comparison_tools` (90%), `model_tools` (90%) |
+| 100% | `__init__`, `_bootstrap`, `_extraction`, `_serialize`, `errors`, `model_state`, `probe_store`, `resources`, `server`, `steering_store`, `tools/__init__`, `causal/` (ablation), `attention/`, `probe/`, `residual/` |
+| 90--99% | `comparison_state` (99%), `activation/` (98%), `generation/` (94%), `steering/` (92%), `_generate` (92%), `_compare` (91%), `causal/` (91%), `comparison/` (90%), `model/` (90%) |
 
 ---
 
@@ -405,11 +405,11 @@ degrees as primary output. PCA projections optional and flagged as lossy.
 | `build_dark_table` | Precompute dark coordinate lookup table: project reference prompts onto a subspace for zero-pass injection | `extract_activation_at_layer` + subspace projection |
 | `list_dark_tables` | List all dark tables in the DarkTableRegistry | Pure registry read |
 
-> **Note:** Geometry tools are structured as a subpackage (`tools/geometry/`)
-> with one file per tool and shared helpers in `_helpers.py`. This is the
-> first subpackage under `tools/` — future tool groups may follow the same pattern.
+> **Note:** All tool groups are structured as subpackages under `tools/`
+> (e.g. `tools/geometry/`, `tools/generation/`, `tools/residual/`, etc.).
+> Geometry tools have one file per tool and shared helpers in `_helpers.py`.
 
-**Status:** Steps 15--23 complete. **64 tools**, **1182 tests**, `make check` green.
+**Status:** Steps 15--23 complete. **64 tools**, **1495 tests**, `make check` green.
 
 Steps 13--14 (confidence/metacognition, external memory) remain valid
 but are deprioritized.
@@ -776,7 +776,7 @@ If chuk-lazarus training capabilities are exposed:
 
 | Tool | Backend | Status |
 |------|---------|--------|
-| `logit_lens` (calibrated) | `residual_tools._get_lm_projection()` + `ModelHooks._get_final_norm()` | ✅ |
+| `logit_lens` (calibrated) | `tools/residual/_get_lm_projection()` + `ModelHooks._get_final_norm()` | ✅ |
 | `attribution_sweep` | Loop `_logit_attribution_impl()` + prompt_summary post-processing | ✅ |
 | `create/get_experiment` | `ExperimentStore` singleton, filesystem JSON | ✅ |
 | `track_race` | `ModelHooks` + `_norm_project` per candidate per layer | ✅ |

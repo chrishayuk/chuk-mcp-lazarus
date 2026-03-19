@@ -97,7 +97,7 @@ class TestExtractActivations:
             "activations": {"0": [0.1, 0.2, 0.3]},
         }
         with patch(
-            "chuk_mcp_lazarus.tools.activation_tools._extract_activations_impl",
+            "chuk_mcp_lazarus.tools.activation.tools._extract_activations_impl",
             return_value=mock_result,
         ):
             result = await extract_activations(prompt="hello", layers=[0])
@@ -107,7 +107,7 @@ class TestExtractActivations:
     @pytest.mark.asyncio
     async def test_exception_returns_error(self, loaded_model_state: MagicMock) -> None:
         with patch(
-            "chuk_mcp_lazarus.tools.activation_tools._extract_activations_impl",
+            "chuk_mcp_lazarus.tools.activation.tools._extract_activations_impl",
             side_effect=RuntimeError("boom"),
         ):
             result = await extract_activations(prompt="hello", layers=[0])
@@ -126,7 +126,7 @@ class TestExtractActivations:
             "attention_shapes": {"0": [1, 4, 5, 5]},
         }
         with patch(
-            "chuk_mcp_lazarus.tools.activation_tools._extract_activations_impl",
+            "chuk_mcp_lazarus.tools.activation.tools._extract_activations_impl",
             return_value=mock_result,
         ):
             result = await extract_activations(prompt="hello", layers=[0], capture_attention=True)
@@ -229,7 +229,7 @@ class TestCompareActivations:
             "centroid_distance": 0.1,
         }
         with patch(
-            "chuk_mcp_lazarus.tools.activation_tools._compare_activations_impl",
+            "chuk_mcp_lazarus.tools.activation.tools._compare_activations_impl",
             return_value=mock_result,
         ):
             result = await compare_activations(prompts=["a", "b"], layer=0)
@@ -240,7 +240,7 @@ class TestCompareActivations:
     async def test_exception_returns_error(self, loaded_model_state: MagicMock) -> None:
         """Exception path: _compare_activations_impl raises -> ExtractionFailed."""
         with patch(
-            "chuk_mcp_lazarus.tools.activation_tools._compare_activations_impl",
+            "chuk_mcp_lazarus.tools.activation.tools._compare_activations_impl",
             side_effect=RuntimeError("compare failed"),
         ):
             result = await compare_activations(prompts=["a", "b"], layer=0)

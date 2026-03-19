@@ -186,7 +186,7 @@ class TestCompareWeights:
             patch("chuk_mcp_lazarus.tools.comparison_tools.ModelState.get", return_value=primary),
             patch("chuk_mcp_lazarus.tools.comparison_tools.ComparisonState.get", return_value=comp),
             patch(
-                "chuk_mcp_lazarus.tools.comparison_tools.weight_divergence",
+                "chuk_mcp_lazarus.tools.comparison.tools.weight_divergence",
                 return_value=mock_divergences,
             ),
         ):
@@ -267,7 +267,7 @@ class TestCompareRepresentations:
             patch("chuk_mcp_lazarus.tools.comparison_tools.ModelState.get", return_value=primary),
             patch("chuk_mcp_lazarus.tools.comparison_tools.ComparisonState.get", return_value=comp),
             patch(
-                "chuk_mcp_lazarus.tools.comparison_tools.activation_divergence",
+                "chuk_mcp_lazarus.tools.comparison.tools.activation_divergence",
                 return_value=mock_divergences,
             ),
         ):
@@ -322,7 +322,7 @@ class TestCompareAttention:
             patch("chuk_mcp_lazarus.tools.comparison_tools.ModelState.get", return_value=primary),
             patch("chuk_mcp_lazarus.tools.comparison_tools.ComparisonState.get", return_value=comp),
             patch(
-                "chuk_mcp_lazarus.tools.comparison_tools.attention_divergence",
+                "chuk_mcp_lazarus.tools.comparison.tools.attention_divergence",
                 return_value=mock_divergences,
             ),
         ):

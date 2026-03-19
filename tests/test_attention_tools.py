@@ -51,7 +51,7 @@ class TestAttentionPattern:
             "patterns": [],
         }
         with patch(
-            "chuk_mcp_lazarus.tools.attention_tools._attention_pattern_impl",
+            "chuk_mcp_lazarus.tools.attention.tools._attention_pattern_impl",
             return_value=mock_result,
         ):
             result = await attention_pattern(prompt="hello", layers=[0])
@@ -68,7 +68,7 @@ class TestAttentionPattern:
             "patterns": [],
         }
         with patch(
-            "chuk_mcp_lazarus.tools.attention_tools._attention_pattern_impl",
+            "chuk_mcp_lazarus.tools.attention.tools._attention_pattern_impl",
             return_value=mock_result,
         ):
             result = await attention_pattern(prompt="hello")
@@ -78,7 +78,7 @@ class TestAttentionPattern:
     async def test_exception_returns_error(self, loaded_model_state: MagicMock) -> None:
         """Exception path: _attention_pattern_impl raises -> ExtractionFailed."""
         with patch(
-            "chuk_mcp_lazarus.tools.attention_tools._attention_pattern_impl",
+            "chuk_mcp_lazarus.tools.attention.tools._attention_pattern_impl",
             side_effect=RuntimeError("boom"),
         ):
             result = await attention_pattern(prompt="hello", layers=[0])
@@ -123,7 +123,7 @@ class TestAttentionHeads:
             "summary": {"most_focused_heads": [], "most_diffuse_heads": []},
         }
         with patch(
-            "chuk_mcp_lazarus.tools.attention_tools._attention_heads_impl",
+            "chuk_mcp_lazarus.tools.attention.tools._attention_heads_impl",
             return_value=mock_result,
         ):
             result = await attention_heads(prompt="hello", layers=[0])
@@ -140,7 +140,7 @@ class TestAttentionHeads:
             "summary": {"most_focused_heads": [], "most_diffuse_heads": []},
         }
         with patch(
-            "chuk_mcp_lazarus.tools.attention_tools._attention_heads_impl",
+            "chuk_mcp_lazarus.tools.attention.tools._attention_heads_impl",
             return_value=mock_result,
         ):
             result = await attention_heads(prompt="hello")
@@ -151,7 +151,7 @@ class TestAttentionHeads:
     async def test_exception_returns_error(self, loaded_model_state: MagicMock) -> None:
         """Exception path: _attention_heads_impl raises -> ExtractionFailed."""
         with patch(
-            "chuk_mcp_lazarus.tools.attention_tools._attention_heads_impl",
+            "chuk_mcp_lazarus.tools.attention.tools._attention_heads_impl",
             side_effect=RuntimeError("kaboom"),
         ):
             result = await attention_heads(prompt="hello", layers=[0])

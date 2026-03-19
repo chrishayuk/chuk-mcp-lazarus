@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from ...errors import ToolError, make_error
 from ...model_state import ModelState
 from ...server import mcp
-from .inject_residual import (
+from ._injection_helpers import (
     TokenPrediction,
     _run_forward_with_injection,
     _softmax_np,
@@ -205,7 +205,7 @@ def _branch_and_collapse_impl(
     """Sync implementation of branch_and_collapse."""
     import mlx.core as mx
 
-    from ..residual_tools import (
+    from ..._residual_helpers import (
         _extract_position,
         _get_lm_projection,
         _norm_project,

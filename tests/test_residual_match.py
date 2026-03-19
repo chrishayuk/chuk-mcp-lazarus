@@ -183,11 +183,11 @@ class TestResidualMatchImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus._residual_helpers._run_decomposition_forward",
                 return_value=decomp,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._extract_position",
+                "chuk_mcp_lazarus._residual_helpers._extract_position",
                 side_effect=fake_extract_position,
             ),
             patch("mlx.core.eval"),

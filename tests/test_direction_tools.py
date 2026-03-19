@@ -137,7 +137,7 @@ class TestExtractDirection:
             "stored_as_steering_vector": True,
         }
         with patch(
-            "chuk_mcp_lazarus.tools.direction_tools._extract_direction_impl",
+            "chuk_mcp_lazarus.tools.steering.tools._extract_direction_impl",
             return_value=mock_result,
         ):
             result = await extract_direction(
@@ -157,7 +157,7 @@ class TestExtractDirection:
     async def test_exception_returns_extraction_failed(self, loaded_model_state: MagicMock) -> None:
         """When _extract_direction_impl raises, tool returns ExtractionFailed."""
         with patch(
-            "chuk_mcp_lazarus.tools.direction_tools._extract_direction_impl",
+            "chuk_mcp_lazarus.tools.steering.tools._extract_direction_impl",
             side_effect=RuntimeError("direction boom"),
         ):
             result = await extract_direction(
@@ -205,7 +205,7 @@ class TestExtractDirectionImpl:
         mock_extract = _make_mock_extract(pos_vecs, neg_vecs)
 
         with patch(
-            "chuk_mcp_lazarus.tools.direction_tools.extract_activation_at_layer",
+            "chuk_mcp_lazarus.tools.steering.tools.extract_activation_at_layer",
             side_effect=mock_extract,
         ):
             return _extract_direction_impl(

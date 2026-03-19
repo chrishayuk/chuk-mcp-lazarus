@@ -465,7 +465,7 @@ def _computation_map_impl(
     import mlx.core as mx
     import mlx.nn as nn
 
-    from ..residual_tools import (
+    from ..._residual_helpers import (
         _extract_position,
         _get_lm_projection,
         _get_unembed_vector,

@@ -140,7 +140,7 @@ class TestCreateExperimentError:
 
         mock_store = MagicMock()
         mock_store.create.side_effect = RuntimeError("disk full")
-        with patch("chuk_mcp_lazarus.tools.experiment_tools.ExperimentStore") as mock_es:
+        with patch("chuk_mcp_lazarus.tools.experiment.tools.ExperimentStore") as mock_es:
             mock_es.get.return_value = mock_store
             result = await create_experiment(name="bad_exp")
         assert result["error"] is True
@@ -156,7 +156,7 @@ class TestAddExperimentResultError:
 
         mock_store = MagicMock()
         mock_store.add_result.side_effect = IOError("write failed")
-        with patch("chuk_mcp_lazarus.tools.experiment_tools.ExperimentStore") as mock_es:
+        with patch("chuk_mcp_lazarus.tools.experiment.tools.ExperimentStore") as mock_es:
             mock_es.get.return_value = mock_store
             result = await add_experiment_result(
                 experiment_id="any_id",
@@ -200,7 +200,7 @@ class TestGetExperimentDiskFallback:
         mock_store.get_experiment.side_effect = fake_get
         mock_store.load_from_disk.return_value = True
 
-        with patch("chuk_mcp_lazarus.tools.experiment_tools.ExperimentStore") as mock_es:
+        with patch("chuk_mcp_lazarus.tools.experiment.tools.ExperimentStore") as mock_es:
             mock_es.get.return_value = mock_store
             result = await get_experiment(experiment_id="some_disk_id")
 

@@ -681,7 +681,7 @@ class TestPrefillToLayerImpl:
                 return_value=h_out,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=lm_head,
             ),
             patch("mlx.core.eval"),
@@ -804,19 +804,19 @@ class TestKvInjectTestImpl:
                 return_value=token_id,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus._residual_helpers._run_decomposition_forward",
                 return_value=decomp_full,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=lm_head,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 return_value=full_logits_mx,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus._residual_helpers._get_unembed_vector",
                 return_value=u_vec,
             ),
             patch(
@@ -959,19 +959,19 @@ class TestKvInjectTestImpl:
                 return_value=5,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus._residual_helpers._run_decomposition_forward",
                 return_value=decomp_full,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 return_value=full_logits_mx,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus._residual_helpers._get_unembed_vector",
                 return_value=u_vec,
             ),
             patch(
@@ -1049,19 +1049,19 @@ class TestKvInjectTestImpl:
                 return_value=5,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus._residual_helpers._run_decomposition_forward",
                 return_value=decomp_full,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 return_value=full_logits_mx,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus._residual_helpers._get_unembed_vector",
                 return_value=u_vec,
             ),
             patch(
@@ -1136,19 +1136,19 @@ class TestKvInjectTestImpl:
                 return_value=5,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus._residual_helpers._run_decomposition_forward",
                 return_value=decomp_full,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 return_value=full_logits_mx,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus._residual_helpers._get_unembed_vector",
                 return_value=u_vec,
             ),
             patch(

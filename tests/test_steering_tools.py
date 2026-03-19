@@ -113,7 +113,7 @@ class TestComputeSteeringVector:
             "num_negative": 2,
         }
         with patch(
-            "chuk_mcp_lazarus.tools.steering_tools._compute_steering_vector_impl",
+            "chuk_mcp_lazarus.tools.steering.tools._compute_steering_vector_impl",
             return_value=mock_result,
         ):
             result = await compute_steering_vector(
@@ -129,7 +129,7 @@ class TestComputeSteeringVector:
     async def test_exception_returns_extraction_failed(self, loaded_model_state: MagicMock) -> None:
         """When _compute_steering_vector_impl raises, returns ExtractionFailed."""
         with patch(
-            "chuk_mcp_lazarus.tools.steering_tools._compute_steering_vector_impl",
+            "chuk_mcp_lazarus.tools.steering.tools._compute_steering_vector_impl",
             side_effect=RuntimeError("extract boom"),
         ):
             result = await compute_steering_vector(
@@ -168,7 +168,7 @@ class TestComputeSteeringVectorImpl:
             return all_vecs[idx]
 
         with patch(
-            "chuk_mcp_lazarus.tools.steering_tools.extract_activation_at_layer",
+            "chuk_mcp_lazarus.tools.steering.tools.extract_activation_at_layer",
             side_effect=mock_extract,
         ):
             result = _compute_steering_vector_impl(
@@ -287,7 +287,7 @@ class TestSteerAndGenerate:
             "baseline_tokens": 5,
         }
         with patch(
-            "chuk_mcp_lazarus.tools.steering_tools._steer_and_generate_impl",
+            "chuk_mcp_lazarus.tools.steering.tools._steer_and_generate_impl",
             return_value=mock_result,
         ):
             result = await steer_and_generate(prompt="hello", vector_name="test_vec2")
@@ -309,7 +309,7 @@ class TestSteerAndGenerate:
         reg.store("test_vec_exc", np.zeros(64), meta)
 
         with patch(
-            "chuk_mcp_lazarus.tools.steering_tools._steer_and_generate_impl",
+            "chuk_mcp_lazarus.tools.steering.tools._steer_and_generate_impl",
             side_effect=RuntimeError("gen boom"),
         ):
             result = await steer_and_generate(prompt="hello", vector_name="test_vec_exc")
@@ -335,11 +335,11 @@ class TestSteerAndGenerateImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.steering_tools.generate_text",
+                "chuk_mcp_lazarus.tools.steering.tools.generate_text",
                 return_value=("baseline output text", 3),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.steering_tools._generate_steered",
+                "chuk_mcp_lazarus.tools.steering.tools._generate_steered",
                 return_value=("steered output text", 5),
             ),
         ):

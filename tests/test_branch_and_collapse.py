@@ -244,19 +244,19 @@ class TestBranchAndCollapseImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus._residual_helpers._run_decomposition_forward",
                 return_value=decomp,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._extract_position",
+                "chuk_mcp_lazarus._residual_helpers._extract_position",
                 side_effect=fake_extract_position,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=fake_norm_project,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=mock_lm_head,
             ),
             patch(

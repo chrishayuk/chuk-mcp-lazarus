@@ -101,7 +101,7 @@ class TestAttributionSweep:
     @pytest.mark.asyncio
     async def test_success(self, loaded_model_state: MagicMock) -> None:
         with patch(
-            "chuk_mcp_lazarus.tools.attribution_tools._attribution_sweep_impl",
+            "chuk_mcp_lazarus.tools.attribution.tools._attribution_sweep_impl",
             return_value={
                 "num_prompts": 2,
                 "num_layers": 4,
@@ -125,7 +125,7 @@ class TestAttributionSweep:
     @pytest.mark.asyncio
     async def test_exception_returns_error(self, loaded_model_state: MagicMock) -> None:
         with patch(
-            "chuk_mcp_lazarus.tools.attribution_tools._attribution_sweep_impl",
+            "chuk_mcp_lazarus.tools.attribution.tools._attribution_sweep_impl",
             side_effect=RuntimeError("boom"),
         ):
             result = await attribution_sweep(
@@ -138,7 +138,7 @@ class TestAttributionSweep:
     @pytest.mark.asyncio
     async def test_value_error_returns_invalid_input(self, loaded_model_state: MagicMock) -> None:
         with patch(
-            "chuk_mcp_lazarus.tools.attribution_tools._attribution_sweep_impl",
+            "chuk_mcp_lazarus.tools.attribution.tools._attribution_sweep_impl",
             side_effect=ValueError("bad token"),
         ):
             result = await attribution_sweep(
@@ -152,7 +152,7 @@ class TestAttributionSweep:
     async def test_default_layers(self, loaded_model_state: MagicMock) -> None:
         """When layers=None, auto-sampling should work."""
         with patch(
-            "chuk_mcp_lazarus.tools.attribution_tools._attribution_sweep_impl",
+            "chuk_mcp_lazarus.tools.attribution.tools._attribution_sweep_impl",
             return_value={
                 "num_prompts": 1,
                 "num_layers": 4,
@@ -181,7 +181,7 @@ class TestAttributionSweepImpl:
         tokenizer = MagicMock()
 
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._logit_attribution_impl",
+            "chuk_mcp_lazarus.tools.residual.tools._logit_attribution_impl",
             side_effect=_fake_logit_attribution_impl,
         ):
             result = _attribution_sweep_impl(
@@ -215,7 +215,7 @@ class TestAttributionSweepImpl:
         tokenizer = MagicMock()
 
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._logit_attribution_impl",
+            "chuk_mcp_lazarus.tools.residual.tools._logit_attribution_impl",
             side_effect=_fake_logit_attribution_impl,
         ):
             result = _attribution_sweep_impl(
@@ -241,7 +241,7 @@ class TestAttributionSweepImpl:
         tokenizer = MagicMock()
 
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._logit_attribution_impl",
+            "chuk_mcp_lazarus.tools.residual.tools._logit_attribution_impl",
             side_effect=_fake_logit_attribution_impl,
         ):
             result = _attribution_sweep_impl(
@@ -280,7 +280,7 @@ class TestAttributionSweepPromptSummary:
         tokenizer = MagicMock()
 
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._logit_attribution_impl",
+            "chuk_mcp_lazarus.tools.residual.tools._logit_attribution_impl",
             side_effect=_fake_logit_attribution_impl,
         ):
             return _attribution_sweep_impl(

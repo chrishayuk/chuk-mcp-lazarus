@@ -813,23 +813,23 @@ class TestComputeDlaImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus._residual_helpers._run_decomposition_forward",
                 return_value=decomp,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=lm_head,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 return_value=full_logits,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._resolve_target_token",
+                "chuk_mcp_lazarus._residual_helpers._resolve_target_token",
                 return_value=(1, "tok1"),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus._residual_helpers._get_unembed_vector",
                 return_value=u_vec,
             ),
             patch(
@@ -959,23 +959,23 @@ class TestBatchDlaScanImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus._residual_helpers._run_decomposition_forward",
                 return_value=decomp,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=lm_head,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 return_value=full_logits,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._resolve_target_token",
+                "chuk_mcp_lazarus._residual_helpers._resolve_target_token",
                 return_value=(1, "tok1"),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus._residual_helpers._get_unembed_vector",
                 return_value=u_vec,
             ),
             patch(
@@ -1086,11 +1086,11 @@ class TestGetTokenEmbeddingImpl:
                 return_value=token_id,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus._residual_helpers._get_unembed_vector",
                 return_value=u_vec,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_embed_weight",
+                "chuk_mcp_lazarus._residual_helpers._get_embed_weight",
                 return_value=embed_w,
             ),
             patch("mlx.core.eval"),
@@ -1148,7 +1148,7 @@ class TestGetTokenEmbeddingImpl:
                 return_value=5,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus._residual_helpers._get_unembed_vector",
                 return_value=None,
             ),
             patch("mlx.core.eval"),
@@ -1202,7 +1202,7 @@ class TestExtractKVectorImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus._residual_helpers._run_decomposition_forward",
                 return_value=decomp,
             ),
             patch(
@@ -1299,7 +1299,7 @@ class TestExtractQVectorImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus._residual_helpers._run_decomposition_forward",
                 return_value=decomp,
             ),
             patch(
@@ -1389,11 +1389,11 @@ class TestExtractAttentionOutputImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus._residual_helpers._run_decomposition_forward",
                 return_value=decomp,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=lm_head,
             ),
             patch(

@@ -184,7 +184,7 @@ def _subspace_decomposition_impl(
 
     decomp = None
     if needs_decomp:
-        from ..residual_tools import _run_decomposition_forward
+        from ..._residual_helpers import _run_decomposition_forward
 
         tok_ids = tokenizer.encode(prompt, add_special_tokens=True)
         input_ids = mx.array(tok_ids)

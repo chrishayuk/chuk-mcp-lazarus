@@ -93,7 +93,7 @@ class TestAblateLayers:
             "disruption_score": 0.0,
         }
         with patch(
-            "chuk_mcp_lazarus.tools.ablation_tools._ablate_layers_impl",
+            "chuk_mcp_lazarus.tools.causal.tools._ablate_layers_impl",
             return_value=mock_result,
         ):
             result = await ablate_layers(prompt="hello", layers=[0])
@@ -104,7 +104,7 @@ class TestAblateLayers:
     async def test_exception_path(self, loaded_model_state: MagicMock) -> None:
         """When _ablate_layers_impl raises, the tool returns an AblationFailed error."""
         with patch(
-            "chuk_mcp_lazarus.tools.ablation_tools._ablate_layers_impl",
+            "chuk_mcp_lazarus.tools.causal.tools._ablate_layers_impl",
             side_effect=RuntimeError("internal ablation error"),
         ):
             result = await ablate_layers(prompt="hello", layers=[0])
@@ -155,7 +155,7 @@ class TestPatchActivations:
             "effect_size": 0.2,
         }
         with patch(
-            "chuk_mcp_lazarus.tools.ablation_tools._patch_activations_impl",
+            "chuk_mcp_lazarus.tools.causal.tools._patch_activations_impl",
             return_value=mock_result,
         ):
             result = await patch_activations(source_prompt="a", target_prompt="b", layer=0)
@@ -166,7 +166,7 @@ class TestPatchActivations:
     async def test_exception_path(self, loaded_model_state: MagicMock) -> None:
         """When _patch_activations_impl raises, the tool returns an AblationFailed error."""
         with patch(
-            "chuk_mcp_lazarus.tools.ablation_tools._patch_activations_impl",
+            "chuk_mcp_lazarus.tools.causal.tools._patch_activations_impl",
             side_effect=RuntimeError("internal patching error"),
         ):
             result = await patch_activations(source_prompt="a", target_prompt="b", layer=0)
@@ -200,7 +200,7 @@ class TestAblateLayersImpl:
         config = MagicMock()
 
         with patch(
-            "chuk_mcp_lazarus.tools.ablation_tools.generate_text",
+            "chuk_mcp_lazarus.tools.causal.tools.generate_text",
             return_value=("baseline hello world", 3),
         ):
             result = _ablate_layers_impl(
@@ -231,7 +231,7 @@ class TestAblateLayersImpl:
         config = MagicMock()
 
         with patch(
-            "chuk_mcp_lazarus.tools.ablation_tools.generate_text",
+            "chuk_mcp_lazarus.tools.causal.tools.generate_text",
             return_value=("attention baseline", 2),
         ):
             result = _ablate_layers_impl(
@@ -255,7 +255,7 @@ class TestAblateLayersImpl:
         config = MagicMock()
 
         with patch(
-            "chuk_mcp_lazarus.tools.ablation_tools.generate_text",
+            "chuk_mcp_lazarus.tools.causal.tools.generate_text",
             return_value=("both baseline", 2),
         ):
             result = _ablate_layers_impl(
@@ -285,7 +285,7 @@ class TestAblateLayersImpl:
             config = MagicMock()
 
             with patch(
-                "chuk_mcp_lazarus.tools.ablation_tools.generate_text",
+                "chuk_mcp_lazarus.tools.causal.tools.generate_text",
                 return_value=("same output", 2),
             ):
                 result = _ablate_layers_impl(
@@ -317,7 +317,7 @@ class TestAblateLayersImpl:
             config = MagicMock()
 
             with patch(
-                "chuk_mcp_lazarus.tools.ablation_tools.generate_text",
+                "chuk_mcp_lazarus.tools.causal.tools.generate_text",
                 return_value=("abc def", 2),
             ):
                 result = _ablate_layers_impl(
@@ -343,7 +343,7 @@ class TestAblateLayersImpl:
         config = MagicMock()
 
         with patch(
-            "chuk_mcp_lazarus.tools.ablation_tools.generate_text",
+            "chuk_mcp_lazarus.tools.causal.tools.generate_text",
             return_value=("base", 1),
         ):
             result = _ablate_layers_impl(
@@ -385,7 +385,7 @@ class TestAblateLayersImpl:
             config = MagicMock()
 
             with patch(
-                "chuk_mcp_lazarus.tools.ablation_tools.generate_text",
+                "chuk_mcp_lazarus.tools.causal.tools.generate_text",
                 return_value=("hello world foo qux", 4),
             ):
                 result = _ablate_layers_impl(

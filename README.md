@@ -14,7 +14,7 @@ git clone https://github.com/chuk-ai/chuk-mcp-lazarus.git
 cd chuk-mcp-lazarus
 uv sync
 
-# Run the smoke test (55 tests on SmolLM2-135M, ~3 seconds)
+# Run the smoke test (53 tests on SmolLM2-135M, ~3 seconds)
 uv run python examples/smoke_test.py
 
 # Run the full 15-step language transition demo
@@ -147,7 +147,12 @@ Smoke tests use **SmolLM2-135M** for speed.
 | `residual_stream_demo.py` | 4 tools -- residual decomposition and layer clustering | SmolLM2-135M |
 | `logit_attribution_demo.py` | 3 tools -- direct logit attribution (knowledge localization) | SmolLM2-135M |
 | `causal_tracing_demo.py` | 3 tools -- causal tracing (observation vs intervention) | SmolLM2-135M |
-| `smoke_test.py` | 55 tests -- validates all tools with error envelope coverage | SmolLM2-135M |
+| `geometry_demo.py` | 6 tools -- angles, trajectories, dimensionality in activation space | SmolLM2-135M |
+| `subspace_demo.py` | 12 tools -- PCA subspaces, residual injection, surgery, dark tables | SmolLM2-135M |
+| `copy_circuit_demo.py` | 8 tools -- copy circuit hypothesis (DLA, head output, KV vectors) | SmolLM2-135M |
+| `direction_demo.py` | 7 tools -- direction extraction, steering, probing | SmolLM2-135M |
+| `neuron_demo.py` | 4 tools -- neuron discovery, analysis, and downstream tracing | SmolLM2-135M |
+| `smoke_test.py` | 53 tests -- validates all tools with error envelope coverage | SmolLM2-135M |
 
 ## The Demo: Language Transition Probing
 
@@ -178,7 +183,7 @@ output differences with `compare_generations`, then find where
 fine-tuning changed weights, activations, and attention patterns.
 Designed for Gemma 3 4B vs TranslateGemma 4B using low-resource
 languages (Icelandic, Swahili, Estonian, Marathi) where TranslateGemma
-shows 25-30% improvement.
+shows 25-30% improvement
 
 Run it: `uv run python examples/comparison_demo.py`
 
@@ -203,7 +208,9 @@ src/chuk_mcp_lazarus/
 ├── probe_store.py       # ProbeRegistry singleton
 ├── steering_store.py    # SteeringVectorRegistry singleton
 ├── comparison_state.py  # ComparisonState singleton (2nd model)
-├── dark_table_registry.py # DarkTableRegistry singleton (precomputed coordinates)
+├── experiment_store.py  # ExperimentStore singleton
+├── subspace_registry.py # SubspaceRegistry singleton
+├── dark_table_registry.py # DarkTableRegistry singleton
 ├── resources.py         # MCP resources (4 resources)
 ├── errors.py            # Error types + envelope helper (17 error types)
 ├── _bootstrap.py        # Optional dependency stubs
@@ -211,40 +218,33 @@ src/chuk_mcp_lazarus/
 ├── _generate.py         # Shared text generation
 ├── _compare.py          # Shared comparison kernels
 ├── _extraction.py       # Shared activation extraction
+├── _residual_helpers.py # Shared residual-stream helpers
 └── tools/
-    ├── model_tools.py       # load_model, get_model_info
-    ├── generation_tools.py    # generate_text, predict_next_token, tokenize, logit_lens, track_token, track_race, embedding_neighbors
-    ├── activation_tools.py    # extract_activations, compare_activations
-    ├── attention_tools.py     # attention_pattern, attention_heads
-    ├── probe_tools.py         # train_probe, evaluate_probe, scan_probe_across_layers, probe_at_inference, list_probes
-    ├── steering_tools.py      # compute_steering_vector, steer_and_generate, list_steering_vectors
-    ├── ablation_tools.py      # ablate_layers, patch_activations
-    ├── causal_tools.py        # trace_token, full_causal_trace
-    ├── residual_tools.py      # residual_decomposition, layer_clustering, logit_attribution, head_attribution, top_neurons
-    ├── attribution_tools.py   # attribution_sweep (batch logit attribution with prompt summaries)
-    ├── intervention_tools.py  # component_intervention (zero/scale attention, FFN, heads)
-    ├── neuron_tools.py        # discover_neurons, analyze_neuron, neuron_trace
-    ├── direction_tools.py     # extract_direction
-    ├── experiment_tools.py    # create_experiment, add_experiment_result, get_experiment, list_experiments
-    ├── comparison_tools.py    # load_comparison_model, compare_weights, compare_representations, compare_attention, compare_generations, unload_comparison_model
-    └── geometry/              # Geometry tools (per-tool subpackage)
-        ├── _helpers.py            # Shared enums, math, direction extraction
-        ├── token_space.py         # token_space
-        ├── direction_angles.py    # direction_angles
-        ├── subspace_decomposition.py  # subspace_decomposition
-        ├── residual_trajectory.py # residual_trajectory
-        ├── feature_dimensionality.py  # feature_dimensionality
-        ├── decode_residual.py     # decode_residual
-        ├── computation_map.py     # computation_map
-        ├── inject_residual.py     # inject_residual
-        ├── residual_match.py      # residual_match
-        ├── compute_subspace.py    # compute_subspace, list_subspaces
-        ├── residual_atlas.py      # residual_atlas
-        ├── weight_geometry.py     # weight_geometry
-        ├── residual_map.py        # residual_map
-        ├── branch_and_collapse.py # branch_and_collapse
-        ├── subspace_surgery.py    # subspace_surgery
-        └── build_dark_table.py    # build_dark_table, list_dark_tables
+    ├── model/               # load_model, get_model_info
+    ├── generation/          # generate_text, predict_next_token, tokenize,
+    │                        #   logit_lens, track_token, track_race, embedding_neighbors
+    ├── activation/          # extract_activations, compare_activations
+    ├── attention/           # attention_pattern, attention_heads
+    ├── residual/            # residual_decomposition, layer_clustering,
+    │                        #   logit_attribution, head_attribution, top_neurons
+    ├── neuron/              # discover_neurons, analyze_neuron, neuron_trace
+    ├── probe/               # train_probe, evaluate_probe, scan_probe_across_layers,
+    │                        #   probe_at_inference, list_probes
+    ├── steering/            # compute_steering_vector, steer_and_generate,
+    │                        #   list_steering_vectors, extract_direction
+    ├── causal/              # trace_token, full_causal_trace,
+    │                        #   ablate_layers, patch_activations
+    ├── comparison/          # load_comparison_model, compare_weights,
+    │                        #   compare_representations, compare_attention,
+    │                        #   compare_generations, unload_comparison_model
+    ├── attribution/         # attribution_sweep
+    ├── intervention/        # component_intervention
+    ├── experiment/          # create_experiment, add_experiment_result,
+    │                        #   get_experiment, list_experiments
+    └── geometry/            # Geometry tools (per-tool subpackage, 18+ tools)
+        ├── _helpers.py          # Shared enums, math, direction extraction
+        ├── _injection_helpers.py # Shared injection/generation helpers
+        └── (one .py per tool)
 ```
 
 ## Development

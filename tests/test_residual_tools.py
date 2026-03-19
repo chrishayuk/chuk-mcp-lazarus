@@ -703,7 +703,7 @@ class TestResidualDecomposition:
     @pytest.mark.asyncio
     async def test_exception_returns_extraction_failed(self, loaded_model_state: MagicMock) -> None:
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+            "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
             side_effect=RuntimeError("boom"),
         ):
             result = await residual_decomposition(prompt="hello", layers=[0])
@@ -731,7 +731,7 @@ class TestResidualDecomposition:
         }
 
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+            "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
             return_value=captured,
         ):
             result = await residual_decomposition(prompt="hello", layers=[0])
@@ -779,7 +779,7 @@ class TestResidualDecomposition:
             )
 
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+            "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
             return_value=captured,
         ):
             result = await residual_decomposition(prompt="hello", layers=None)
@@ -805,7 +805,7 @@ class TestResidualDecomposition:
         }
 
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+            "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
             return_value=captured,
         ):
             result = await residual_decomposition(prompt="hello", layers=[0])
@@ -843,7 +843,7 @@ class TestResidualDecomposition:
         }
 
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+            "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
             return_value=captured,
         ):
             result = await residual_decomposition(prompt="hello", layers=[0, 1])
@@ -896,7 +896,7 @@ class TestLayerClustering:
     async def test_exception_returns_extraction_failed(self, loaded_model_state: MagicMock) -> None:
         """Exception inside the try block should yield ExtractionFailed."""
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._tokenize",
+            "chuk_mcp_lazarus.tools.residual.tools._tokenize",
             side_effect=RuntimeError("tokenization failed"),
         ):
             result = await layer_clustering(prompts=["a", "b"], layers=[0])
@@ -1044,7 +1044,7 @@ class TestLogitAttribution:
     @pytest.mark.asyncio
     async def test_exception_returns_extraction_failed(self, loaded_model_state: MagicMock) -> None:
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+            "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
             side_effect=RuntimeError("explosion"),
         ):
             result = await logit_attribution(prompt="hello", layers=[0])
@@ -1099,11 +1099,11 @@ class TestLogitAttribution:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=mock_lm_head,
             ),
             patch(
@@ -1172,11 +1172,11 @@ class TestLogitAttribution:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=mock_lm_head,
             ),
             patch(
@@ -1216,11 +1216,11 @@ class TestLogitAttribution:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=None,
             ),
             patch(
@@ -1277,11 +1277,11 @@ class TestLogitAttribution:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=mock_lm_head,
             ),
             patch(
@@ -1338,11 +1338,11 @@ class TestLogitAttribution:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=mock_lm_head,
             ),
             patch(
@@ -1395,11 +1395,11 @@ class TestLogitAttribution:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=mock_lm_head,
             ),
             patch(
@@ -1458,11 +1458,11 @@ class TestLogitAttribution:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=mock_lm_head,
             ),
             patch(
@@ -1562,7 +1562,7 @@ class TestHeadAttribution:
             },
         }
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._head_attribution_impl",
+            "chuk_mcp_lazarus.tools.residual.tools._head_attribution_impl",
             return_value=mock_result,
         ):
             result = await head_attribution(prompt="hello", layer=0)
@@ -1574,7 +1574,7 @@ class TestHeadAttribution:
     @pytest.mark.asyncio
     async def test_exception_returns_extraction_failed(self, loaded_model_state: MagicMock) -> None:
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._head_attribution_impl",
+            "chuk_mcp_lazarus.tools.residual.tools._head_attribution_impl",
             side_effect=RuntimeError("head_crash"),
         ):
             result = await head_attribution(prompt="hello", layer=0)
@@ -1597,7 +1597,7 @@ class TestHeadAttribution:
             "summary": {},
         }
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._head_attribution_impl",
+            "chuk_mcp_lazarus.tools.residual.tools._head_attribution_impl",
             return_value=mock_result,
         ):
             result = await head_attribution(prompt="hello", layer=1, target_token="cat")
@@ -1665,7 +1665,7 @@ class TestTopNeurons:
             },
         }
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._top_neurons_impl",
+            "chuk_mcp_lazarus.tools.residual.tools._top_neurons_impl",
             return_value=mock_result,
         ):
             result = await top_neurons(prompt="hello", layer=0)
@@ -1677,7 +1677,7 @@ class TestTopNeurons:
     @pytest.mark.asyncio
     async def test_exception_returns_extraction_failed(self, loaded_model_state: MagicMock) -> None:
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._top_neurons_impl",
+            "chuk_mcp_lazarus.tools.residual.tools._top_neurons_impl",
             side_effect=RuntimeError("neuron_boom"),
         ):
             result = await top_neurons(prompt="hello", layer=0)
@@ -1704,7 +1704,7 @@ class TestTopNeurons:
             "summary": {},
         }
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._top_neurons_impl",
+            "chuk_mcp_lazarus.tools.residual.tools._top_neurons_impl",
             return_value=mock_result,
         ) as mock_impl:
             result = await top_neurons(prompt="hello", layer=0, top_k=500)
@@ -1732,7 +1732,7 @@ class TestTopNeurons:
             "summary": {},
         }
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._top_neurons_impl",
+            "chuk_mcp_lazarus.tools.residual.tools._top_neurons_impl",
             return_value=mock_result,
         ) as mock_impl:
             result = await top_neurons(prompt="hello", layer=0, top_k=0)
@@ -1758,7 +1758,7 @@ class TestTopNeurons:
             "summary": {},
         }
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._top_neurons_impl",
+            "chuk_mcp_lazarus.tools.residual.tools._top_neurons_impl",
             return_value=mock_result,
         ):
             result = await top_neurons(prompt="hello", layer=2, target_token="Paris")
@@ -2491,7 +2491,7 @@ class TestResidualDecompositionZeroNorm:
         }
 
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+            "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
             return_value=captured,
         ):
             result = await residual_decomposition(prompt="hello", layers=[0])
@@ -2515,7 +2515,7 @@ class TestResidualDecompositionZeroNorm:
         }
 
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+            "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
             return_value=captured,
         ):
             result = await residual_decomposition(prompt="hello", layers=[0])
@@ -2602,11 +2602,11 @@ class TestLogitAttributionDefaultLayers:
                 return_value=state,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=mock_lm_head,
             ),
             patch(
@@ -2673,11 +2673,11 @@ class TestLogitAttributionValueError:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=mock_lm_head,
             ),
             patch(
@@ -2685,7 +2685,7 @@ class TestLogitAttributionValueError:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._resolve_target_token",
+                "chuk_mcp_lazarus.tools.residual.tools._resolve_target_token",
                 side_effect=ValueError("Could not encode target token 'xyz'"),
             ),
         ):
@@ -2844,11 +2844,11 @@ class TestHeadAttributionImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
             patch(
@@ -2917,11 +2917,11 @@ class TestHeadAttributionImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
             patch(
@@ -2992,11 +2992,11 @@ class TestHeadAttributionImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
             patch(
@@ -3054,11 +3054,11 @@ class TestHeadAttributionImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
             patch(
@@ -3102,7 +3102,7 @@ class TestHeadAttributionImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=None,
             ),
         ):
@@ -3154,11 +3154,11 @@ class TestHeadAttributionImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=None,
             ),
             patch(
@@ -3215,11 +3215,11 @@ class TestHeadAttributionImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._resolve_target_token",
+                "chuk_mcp_lazarus.tools.residual.tools._resolve_target_token",
                 side_effect=ValueError("Could not encode target token 'zzz'"),
             ),
             patch(
@@ -3277,15 +3277,15 @@ class TestHeadAttributionImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._resolve_target_token",
+                "chuk_mcp_lazarus.tools.residual.tools._resolve_target_token",
                 return_value=(42, "world"),
             ),
             patch(
@@ -3344,11 +3344,11 @@ class TestHeadAttributionImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
             patch(
@@ -3412,11 +3412,11 @@ class TestHeadAttributionImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
             patch(
@@ -3476,11 +3476,11 @@ class TestHeadAttributionImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
             patch(
@@ -3537,11 +3537,11 @@ class TestHeadAttributionImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
             patch(
@@ -3598,11 +3598,11 @@ class TestHeadAttributionImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
             patch(
@@ -3768,7 +3768,7 @@ class TestTopNeuronsImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
@@ -3776,11 +3776,11 @@ class TestTopNeuronsImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
         ):
@@ -3841,7 +3841,7 @@ class TestTopNeuronsImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
@@ -3849,11 +3849,11 @@ class TestTopNeuronsImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
         ):
@@ -3903,7 +3903,7 @@ class TestTopNeuronsImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
@@ -3911,11 +3911,11 @@ class TestTopNeuronsImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
         ):
@@ -3948,7 +3948,7 @@ class TestTopNeuronsImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
@@ -3956,7 +3956,7 @@ class TestTopNeuronsImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=None,
             ),
         ):
@@ -4001,7 +4001,7 @@ class TestTopNeuronsImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
@@ -4009,11 +4009,11 @@ class TestTopNeuronsImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=None,
             ),
         ):
@@ -4056,7 +4056,7 @@ class TestTopNeuronsImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
@@ -4064,7 +4064,7 @@ class TestTopNeuronsImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
         ):
@@ -4105,7 +4105,7 @@ class TestTopNeuronsImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
@@ -4113,11 +4113,11 @@ class TestTopNeuronsImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._resolve_target_token",
+                "chuk_mcp_lazarus.tools.residual.tools._resolve_target_token",
                 side_effect=ValueError("Could not encode"),
             ),
         ):
@@ -4166,7 +4166,7 @@ class TestTopNeuronsImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
@@ -4174,15 +4174,15 @@ class TestTopNeuronsImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._resolve_target_token",
+                "chuk_mcp_lazarus.tools.residual.tools._resolve_target_token",
                 return_value=(42, "world"),
             ),
         ):
@@ -4232,7 +4232,7 @@ class TestTopNeuronsImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
@@ -4240,11 +4240,11 @@ class TestTopNeuronsImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
         ):
@@ -4292,7 +4292,7 @@ class TestTopNeuronsImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
@@ -4300,11 +4300,11 @@ class TestTopNeuronsImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
         ):
@@ -4356,7 +4356,7 @@ class TestTopNeuronsImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
@@ -4364,11 +4364,11 @@ class TestTopNeuronsImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
         ):
@@ -4420,7 +4420,7 @@ class TestTopNeuronsImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
@@ -4428,11 +4428,11 @@ class TestTopNeuronsImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
         ):
@@ -4487,7 +4487,7 @@ class TestTopNeuronsImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
@@ -4495,11 +4495,11 @@ class TestTopNeuronsImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
         ):
@@ -4550,7 +4550,7 @@ class TestTopNeuronsImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
@@ -4558,11 +4558,11 @@ class TestTopNeuronsImpl:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
         ):
@@ -4680,11 +4680,11 @@ class TestHeadAttributionImplForwardFallbacks:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
             patch(
@@ -4744,11 +4744,11 @@ class TestHeadAttributionImplForwardFallbacks:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
             patch(
@@ -4816,11 +4816,11 @@ class TestHeadAttributionImplForwardFallbacks:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
             patch(
@@ -4879,11 +4879,11 @@ class TestHeadAttributionImplForwardFallbacks:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
             patch(
@@ -4949,11 +4949,11 @@ class TestHeadAttributionImplForwardFallbacks:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
             patch(
@@ -5075,7 +5075,7 @@ class TestTopNeuronsImplHiddenActDimensions:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
@@ -5083,11 +5083,11 @@ class TestTopNeuronsImplHiddenActDimensions:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
         ):
@@ -5160,7 +5160,7 @@ class TestTopNeuronsImplHiddenActDimensions:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
@@ -5168,11 +5168,11 @@ class TestTopNeuronsImplHiddenActDimensions:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
         ):
@@ -5245,7 +5245,7 @@ class TestTopNeuronsImplHiddenActDimensions:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._run_decomposition_forward",
+                "chuk_mcp_lazarus.tools.residual.tools._run_decomposition_forward",
                 return_value=captured,
             ),
             patch(
@@ -5253,11 +5253,11 @@ class TestTopNeuronsImplHiddenActDimensions:
                 return_value=mock_hooks,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus.tools.residual.tools._get_lm_projection",
                 return_value=lm_head_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector",
+                "chuk_mcp_lazarus.tools.residual.tools._get_unembed_vector",
                 return_value=unembed_vec,
             ),
         ):

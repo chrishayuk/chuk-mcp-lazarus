@@ -189,7 +189,7 @@ def _residual_atlas_impl(
     """Sync implementation of residual_atlas."""
     import mlx.core as mx
 
-    from ..residual_tools import _get_lm_projection
+    from ..._residual_helpers import _get_lm_projection
 
     multi_layer = len(layers) > 1
 

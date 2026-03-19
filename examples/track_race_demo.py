@@ -146,9 +146,10 @@ def _display_race(race: dict) -> None:
     print(f"  {'Token':>12}  {'Emergence':>9}  {'Peak':>5}  {'PeakProb':>8}")
     print(f"  {'─' * 12}  {'─' * 9}  {'─' * 5}  {'─' * 8}")
     for c in candidates:
-        emerg = str(c["emergence_layer"]) if c["emergence_layer"] is not None else "—"
+        emerg_layer = c.get("emergence_layer")
+        emerg = str(emerg_layer) if emerg_layer is not None else "—"
         print(
-            f"  {c['token']:>12}  {emerg:>9}  {c['peak_layer']:>5}  {c['peak_probability']:>8.4f}"
+            f"  {c['token']:>12}  {emerg:>9}  {c.get('peak_layer', '?'):>5}  {c.get('peak_probability', 0):>8.4f}"
         )
 
     # Crossings

@@ -1083,10 +1083,10 @@ class TestFeatureDimensionalityImpl:
                 side_effect=fake_extract,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=mock_lm_head,
             ),
-            patch("chuk_mcp_lazarus.tools.residual_tools._project_to_logits") as mock_proj,
+            patch("chuk_mcp_lazarus._residual_helpers._project_to_logits") as mock_proj,
         ):
             mock_proj.return_value = mx.array(rng.randn(100).astype(np.float32))
             pos_prompts = [f"pos{i}" for i in range(n_pos)]
@@ -1230,9 +1230,7 @@ class TestHelpersExtended:
 
         model = MagicMock()
         fake_vec = mx.array([1.0, 2.0, 3.0])
-        with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector", return_value=fake_vec
-        ):
+        with patch("chuk_mcp_lazarus._residual_helpers._get_unembed_vector", return_value=fake_vec):
             result = _get_unembed_vec_np(model, 42)
         assert result is not None
         assert result.dtype == np.float32
@@ -1244,7 +1242,7 @@ class TestHelpersExtended:
         from chuk_mcp_lazarus.tools.geometry._helpers import _get_unembed_vec_np
 
         model = MagicMock()
-        with patch("chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector", return_value=None):
+        with patch("chuk_mcp_lazarus._residual_helpers._get_unembed_vector", return_value=None):
             result = _get_unembed_vec_np(model, 42)
         assert result is None
 
@@ -1558,7 +1556,7 @@ class TestExtractDirectionVector:
         fake_h = mx.array([[[1.0, 2.0, 3.0, 4.0]]])  # [1, 1, 4]
         decomp = {"hidden_states": {0: fake_h}, "ffn_outputs": {}, "attn_outputs": {}}
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._extract_position",
+            "chuk_mcp_lazarus._residual_helpers._extract_position",
             return_value=mx.array([1.0, 2.0, 3.0, 4.0]),
         ):
             label, vec, err = _extract_direction_vector(
@@ -1721,7 +1719,7 @@ class TestExtractDirectionVector:
         fake_h = mx.array([[[1.0, 2.0, 3.0, 4.0]]])
         decomp = {"hidden_states": {}, "ffn_outputs": {0: fake_h}, "attn_outputs": {}}
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._extract_position",
+            "chuk_mcp_lazarus._residual_helpers._extract_position",
             return_value=mx.array([1.0, 2.0, 3.0, 4.0]),
         ):
             label, vec, err = _extract_direction_vector(
@@ -1747,7 +1745,7 @@ class TestExtractDirectionVector:
         fake_h = mx.array([[[1.0, 2.0, 3.0, 4.0]]])
         decomp = {"hidden_states": {}, "ffn_outputs": {}, "attn_outputs": {0: fake_h}}
         with patch(
-            "chuk_mcp_lazarus.tools.residual_tools._extract_position",
+            "chuk_mcp_lazarus._residual_helpers._extract_position",
             return_value=mx.array([1.0, 2.0, 3.0, 4.0]),
         ):
             label, vec, err = _extract_direction_vector(

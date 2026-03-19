@@ -239,7 +239,7 @@ class TestLogitLens:
             "layers": [],
         }
         with patch(
-            "chuk_mcp_lazarus.tools.generation_tools._logit_lens_impl",
+            "chuk_mcp_lazarus.tools.generation.tools._logit_lens_impl",
             return_value=mock_result,
         ):
             result = await logit_lens(prompt="hello", layers=[0])
@@ -256,7 +256,7 @@ class TestLogitLens:
             "layers": [],
         }
         with patch(
-            "chuk_mcp_lazarus.tools.generation_tools._logit_lens_impl",
+            "chuk_mcp_lazarus.tools.generation.tools._logit_lens_impl",
             return_value=mock_result,
         ):
             result = await logit_lens(prompt="hello", layers=None)
@@ -265,7 +265,7 @@ class TestLogitLens:
     @pytest.mark.asyncio
     async def test_exception_returns_error(self, loaded_model_state: MagicMock) -> None:
         with patch(
-            "chuk_mcp_lazarus.tools.generation_tools._logit_lens_impl",
+            "chuk_mcp_lazarus.tools.generation.tools._logit_lens_impl",
             side_effect=RuntimeError("hooks failed"),
         ):
             result = await logit_lens(prompt="hello", layers=[0])
@@ -299,11 +299,11 @@ class TestLogitLensImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=self._make_norm_project(),
             ),
         ):
@@ -334,11 +334,11 @@ class TestLogitLensImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=self._make_norm_project(),
             ),
         ):
@@ -367,11 +367,11 @@ class TestLogitLensImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=self._make_norm_project(),
             ),
         ):
@@ -399,11 +399,11 @@ class TestLogitLensImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=self._make_norm_project(),
             ),
         ):
@@ -457,7 +457,7 @@ class TestTrackToken:
             "peak_probability": 0.5,
         }
         with patch(
-            "chuk_mcp_lazarus.tools.generation_tools._track_token_impl",
+            "chuk_mcp_lazarus.tools.generation.tools._track_token_impl",
             return_value=mock_result,
         ):
             result = await track_token(prompt="hello", token="world", layers=[0])
@@ -476,7 +476,7 @@ class TestTrackToken:
             "peak_probability": 0.5,
         }
         with patch(
-            "chuk_mcp_lazarus.tools.generation_tools._track_token_impl",
+            "chuk_mcp_lazarus.tools.generation.tools._track_token_impl",
             return_value=mock_result,
         ):
             result = await track_token(prompt="hello", token="world", layers=None)
@@ -485,7 +485,7 @@ class TestTrackToken:
     @pytest.mark.asyncio
     async def test_exception_returns_error(self, loaded_model_state: MagicMock) -> None:
         with patch(
-            "chuk_mcp_lazarus.tools.generation_tools._track_token_impl",
+            "chuk_mcp_lazarus.tools.generation.tools._track_token_impl",
             side_effect=RuntimeError("track failed"),
         ):
             result = await track_token(prompt="hello", token="world", layers=[0])
@@ -519,11 +519,11 @@ class TestTrackTokenImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=self._make_norm_project(),
             ),
         ):
@@ -557,11 +557,11 @@ class TestTrackTokenImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=self._make_norm_project(),
             ),
         ):
@@ -591,11 +591,11 @@ class TestTrackTokenImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=self._make_norm_project(),
             ),
         ):
@@ -621,11 +621,11 @@ class TestTrackTokenImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=self._make_norm_project(),
             ),
         ):
@@ -671,7 +671,7 @@ class TestEmbeddingNeighbors:
             "num_neighbors": 0,
         }
         with patch(
-            "chuk_mcp_lazarus.tools.generation_tools._embedding_neighbors_impl",
+            "chuk_mcp_lazarus.tools.generation.tools._embedding_neighbors_impl",
             return_value=mock_result,
         ):
             result = await embedding_neighbors(token="hello", top_k=5)
@@ -688,7 +688,7 @@ class TestEmbeddingNeighbors:
             "num_neighbors": 0,
         }
         with patch(
-            "chuk_mcp_lazarus.tools.generation_tools._embedding_neighbors_impl",
+            "chuk_mcp_lazarus.tools.generation.tools._embedding_neighbors_impl",
             return_value=mock_result,
         ):
             result = await embedding_neighbors(token="hello", top_k=200)
@@ -698,7 +698,7 @@ class TestEmbeddingNeighbors:
     @pytest.mark.asyncio
     async def test_exception_returns_error(self, loaded_model_state: MagicMock) -> None:
         with patch(
-            "chuk_mcp_lazarus.tools.generation_tools._embedding_neighbors_impl",
+            "chuk_mcp_lazarus.tools.generation.tools._embedding_neighbors_impl",
             side_effect=RuntimeError("embed failed"),
         ):
             result = await embedding_neighbors(token="hello", top_k=5)
@@ -855,7 +855,7 @@ class TestTrackRace:
             "final_probability": 0.5,
         }
         with patch(
-            "chuk_mcp_lazarus.tools.generation_tools._track_race_impl",
+            "chuk_mcp_lazarus.tools.generation.tools._track_race_impl",
             return_value=mock_result,
         ):
             result = await track_race(prompt="hello", candidates=["a", "b"], layers=[0, 1])
@@ -876,7 +876,7 @@ class TestTrackRace:
             "final_probability": 0.5,
         }
         with patch(
-            "chuk_mcp_lazarus.tools.generation_tools._track_race_impl",
+            "chuk_mcp_lazarus.tools.generation.tools._track_race_impl",
             return_value=mock_result,
         ):
             result = await track_race(prompt="hello", candidates=["a", "b"])
@@ -885,7 +885,7 @@ class TestTrackRace:
     @pytest.mark.asyncio
     async def test_exception_returns_error(self, loaded_model_state: MagicMock) -> None:
         with patch(
-            "chuk_mcp_lazarus.tools.generation_tools._track_race_impl",
+            "chuk_mcp_lazarus.tools.generation.tools._track_race_impl",
             side_effect=RuntimeError("race failed"),
         ):
             result = await track_race(prompt="hello", candidates=["a", "b"], layers=[0])
@@ -895,7 +895,7 @@ class TestTrackRace:
     @pytest.mark.asyncio
     async def test_value_error_returns_invalid_input(self, loaded_model_state: MagicMock) -> None:
         with patch(
-            "chuk_mcp_lazarus.tools.generation_tools._track_race_impl",
+            "chuk_mcp_lazarus.tools.generation.tools._track_race_impl",
             side_effect=ValueError("bad candidate"),
         ):
             result = await track_race(prompt="hello", candidates=["a", "b"], layers=[0])
@@ -985,11 +985,11 @@ class TestTrackRaceImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=self._make_norm_project_stable(42, 43),
             ),
         ):
@@ -1022,11 +1022,11 @@ class TestTrackRaceImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=self._make_norm_project_stable(42, 43),
             ),
         ):
@@ -1061,11 +1061,11 @@ class TestTrackRaceImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=self._make_norm_project_stable(42, 43),
             ),
         ):
@@ -1089,11 +1089,11 @@ class TestTrackRaceImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=self._make_norm_project_with_leader(42, 43),
             ),
         ):
@@ -1122,11 +1122,11 @@ class TestTrackRaceImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=self._make_norm_project_stable(42, 43),
             ),
         ):
@@ -1150,11 +1150,11 @@ class TestTrackRaceImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=self._make_norm_project_stable(42, 43),
             ),
         ):
@@ -1181,11 +1181,11 @@ class TestTrackRaceImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=self._make_norm_project_stable(42, 43),
             ),
         ):
@@ -1211,11 +1211,11 @@ class TestTrackRaceImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=self._make_norm_project_stable(42, 43),
             ),
         ):
@@ -1246,11 +1246,11 @@ class TestTrackRaceImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=self._make_norm_project_stable(42, 43),
             ),
         ):
@@ -1285,11 +1285,11 @@ class TestTrackRaceImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=_norm_project,
             ),
         ):

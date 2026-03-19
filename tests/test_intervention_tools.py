@@ -91,7 +91,7 @@ class TestComponentIntervention:
             "summary": {},
         }
         with patch(
-            "chuk_mcp_lazarus.tools.intervention_tools._component_intervention_impl",
+            "chuk_mcp_lazarus.tools.intervention.tools._component_intervention_impl",
             return_value=mock_result,
         ):
             result = await component_intervention(prompt="hello", layer=0, component="attention")
@@ -118,7 +118,7 @@ class TestComponentIntervention:
             "summary": {},
         }
         with patch(
-            "chuk_mcp_lazarus.tools.intervention_tools._component_intervention_impl",
+            "chuk_mcp_lazarus.tools.intervention.tools._component_intervention_impl",
             return_value=mock_result,
         ):
             result = await component_intervention(prompt="hello", layer=1, component="ffn")
@@ -146,7 +146,7 @@ class TestComponentIntervention:
             "summary": {},
         }
         with patch(
-            "chuk_mcp_lazarus.tools.intervention_tools._component_intervention_impl",
+            "chuk_mcp_lazarus.tools.intervention.tools._component_intervention_impl",
             return_value=mock_result,
         ):
             result = await component_intervention(prompt="hello", layer=0, component="head", head=2)
@@ -174,7 +174,7 @@ class TestComponentIntervention:
             "summary": {},
         }
         with patch(
-            "chuk_mcp_lazarus.tools.intervention_tools._component_intervention_impl",
+            "chuk_mcp_lazarus.tools.intervention.tools._component_intervention_impl",
             return_value=mock_result,
         ):
             result = await component_intervention(
@@ -190,7 +190,7 @@ class TestComponentIntervention:
     @pytest.mark.asyncio
     async def test_exception_returns_error(self, loaded_model_state: MagicMock) -> None:
         with patch(
-            "chuk_mcp_lazarus.tools.intervention_tools._component_intervention_impl",
+            "chuk_mcp_lazarus.tools.intervention.tools._component_intervention_impl",
             side_effect=RuntimeError("boom"),
         ):
             result = await component_intervention(prompt="hello", layer=0, component="attention")
@@ -200,7 +200,7 @@ class TestComponentIntervention:
     @pytest.mark.asyncio
     async def test_value_error_returns_invalid_input(self, loaded_model_state: MagicMock) -> None:
         with patch(
-            "chuk_mcp_lazarus.tools.intervention_tools._component_intervention_impl",
+            "chuk_mcp_lazarus.tools.intervention.tools._component_intervention_impl",
             side_effect=ValueError("bad token"),
         ):
             result = await component_intervention(prompt="hello", layer=0, component="attention")
@@ -275,15 +275,15 @@ class TestComponentInterventionImpl:
 
         with (
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+                "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
                 return_value=MagicMock(),
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._norm_project",
+                "chuk_mcp_lazarus._residual_helpers._norm_project",
                 side_effect=norm_project_fn,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.intervention_tools._run_forward_with_intervention",
+                "chuk_mcp_lazarus.tools.intervention.tools._run_forward_with_intervention",
                 return_value=MagicMock(
                     ndim=3,
                     shape=(1, 5, 64),
@@ -504,15 +504,15 @@ class TestRunForwardWithIntervention:
                 return_value=mock_helper,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._has_sublayers",
+                "chuk_mcp_lazarus._residual_helpers._has_sublayers",
                 return_value=has_sublayers,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._has_four_norms",
+                "chuk_mcp_lazarus._residual_helpers._has_four_norms",
                 return_value=has_four_norms,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.intervention_tools._intervene_head",
+                "chuk_mcp_lazarus.tools.intervention.tools._intervene_head",
                 return_value=mx.array(np.ones((1, 3, 64), dtype=np.float32) * 0.7),
             ) as mock_intervene_head,
         ):
@@ -627,11 +627,11 @@ class TestRunForwardWithIntervention:
                 return_value=mock_helper,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._has_sublayers",
+                "chuk_mcp_lazarus._residual_helpers._has_sublayers",
                 return_value=True,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._has_four_norms",
+                "chuk_mcp_lazarus._residual_helpers._has_four_norms",
                 return_value=False,
             ),
         ):
@@ -685,11 +685,11 @@ class TestRunForwardWithIntervention:
                 return_value=mock_helper,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._has_sublayers",
+                "chuk_mcp_lazarus._residual_helpers._has_sublayers",
                 return_value=True,
             ),
             patch(
-                "chuk_mcp_lazarus.tools.residual_tools._has_four_norms",
+                "chuk_mcp_lazarus._residual_helpers._has_four_norms",
                 return_value=False,
             ),
         ):

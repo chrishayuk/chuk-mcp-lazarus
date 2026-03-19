@@ -30,7 +30,7 @@ from ...model_state import ModelState
 from ...server import mcp
 from ...subspace_registry import SubspaceRegistry
 from ._helpers import _cosine_sim
-from .inject_residual import (
+from ._injection_helpers import (
     TokenPrediction,
     _generate_from_hidden,
     _run_forward_with_injection,
@@ -121,7 +121,7 @@ def _subspace_surgery_impl(
 
     from chuk_lazarus.introspection.hooks import ModelHooks
 
-    from ..residual_tools import (
+    from ..._residual_helpers import (
         _extract_position,
         _get_lm_projection,
         _norm_project,

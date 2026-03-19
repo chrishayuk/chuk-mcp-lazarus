@@ -178,7 +178,7 @@ class TestTrainProbe:
             "val_accuracy": 0.90,
         }
         with patch(
-            "chuk_mcp_lazarus.tools.probe_tools._train_probe_impl",
+            "chuk_mcp_lazarus.tools.probe.tools._train_probe_impl",
             return_value=mock_result,
         ):
             result = await train_probe(probe_name="test", layer=0, examples=_make_examples())
@@ -189,7 +189,7 @@ class TestTrainProbe:
     async def test_exception_returns_training_failed(self, loaded_model_state: MagicMock) -> None:
         """When _train_probe_impl raises, train_probe returns TrainingFailed."""
         with patch(
-            "chuk_mcp_lazarus.tools.probe_tools._train_probe_impl",
+            "chuk_mcp_lazarus.tools.probe.tools._train_probe_impl",
             side_effect=RuntimeError("boom"),
         ):
             result = await train_probe(probe_name="test", layer=0, examples=_make_examples())
@@ -301,7 +301,7 @@ class TestEvaluateProbe:
             ],
         }
         with patch(
-            "chuk_mcp_lazarus.tools.probe_tools._evaluate_probe_impl",
+            "chuk_mcp_lazarus.tools.probe.tools._evaluate_probe_impl",
             return_value=mock_result,
         ):
             result = await evaluate_probe(
@@ -332,7 +332,7 @@ class TestEvaluateProbe:
         reg.store("eval_exc", MagicMock(), meta)
 
         with patch(
-            "chuk_mcp_lazarus.tools.probe_tools._evaluate_probe_impl",
+            "chuk_mcp_lazarus.tools.probe.tools._evaluate_probe_impl",
             side_effect=RuntimeError("eval boom"),
         ):
             result = await evaluate_probe(
@@ -438,7 +438,7 @@ class TestScanProbeAcrossLayers:
             "interpretation": "Feature becomes linearly decodable at layer 2.",
         }
         with patch(
-            "chuk_mcp_lazarus.tools.probe_tools._scan_probe_impl",
+            "chuk_mcp_lazarus.tools.probe.tools._scan_probe_impl",
             return_value=mock_result,
         ):
             result = await scan_probe_across_layers(
@@ -455,7 +455,7 @@ class TestScanProbeAcrossLayers:
     async def test_exception_returns_training_failed(self, loaded_model_state: MagicMock) -> None:
         """When _scan_probe_impl raises, scan returns TrainingFailed."""
         with patch(
-            "chuk_mcp_lazarus.tools.probe_tools._scan_probe_impl",
+            "chuk_mcp_lazarus.tools.probe.tools._scan_probe_impl",
             side_effect=RuntimeError("scan boom"),
         ):
             result = await scan_probe_across_layers(
@@ -519,7 +519,7 @@ class TestListProbes:
 # ---------------------------------------------------------------------------
 
 DIM = 64
-_EXTRACTION_MOD = "chuk_mcp_lazarus.tools.probe_tools"
+_EXTRACTION_MOD = "chuk_mcp_lazarus.tools.probe.tools"
 
 
 def _fake_activation(dim: int = DIM) -> list[float]:
@@ -1516,7 +1516,7 @@ class TestProbeAtInference:
         ProbeRegistry.get().store("test_probe", clf, meta)
 
         with patch(
-            "chuk_mcp_lazarus.tools.probe_tools._probe_at_inference_impl",
+            "chuk_mcp_lazarus.tools.probe.tools._probe_at_inference_impl",
             return_value=mock_result,
         ):
             result = await probe_at_inference(prompt="hello", probe_name="test_probe")
@@ -1529,7 +1529,7 @@ class TestProbeAtInference:
         ProbeRegistry.get().store("test_probe", clf, meta)
 
         with patch(
-            "chuk_mcp_lazarus.tools.probe_tools._probe_at_inference_impl",
+            "chuk_mcp_lazarus.tools.probe.tools._probe_at_inference_impl",
             side_effect=RuntimeError("boom"),
         ):
             result = await probe_at_inference(prompt="hello", probe_name="test_probe")

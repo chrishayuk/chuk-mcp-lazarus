@@ -168,7 +168,7 @@ def _weight_geometry_impl(
 
     from chuk_lazarus.introspection.hooks import ModelHooks
 
-    from ..residual_tools import _get_lm_projection
+    from ..._residual_helpers import _get_lm_projection
 
     hooks = ModelHooks(model, model_config=config)
     model_layers = hooks._get_layers()

@@ -182,7 +182,7 @@ def _run(
             side_effect=fake_extract_all,
         ),
         patch(
-            "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+            "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
             return_value=_fake_lm_head,
         ),
     ):

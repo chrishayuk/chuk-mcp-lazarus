@@ -107,7 +107,7 @@ async def main(model_id: str) -> int:
         for item in ts.get("tokens", []):
             print(
                 f"    {item['token']:>10}: angle={item['angle_to_residual']:.1f}°  "
-                f"projection={item['projection_onto_residual']:+.3f}"
+                f"projection={item['projection_on_residual']:+.3f}"
             )
         print("\n  Pairwise token angles:")
         for pair in ts.get("pairwise_angles", [])[:3]:

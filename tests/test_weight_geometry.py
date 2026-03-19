@@ -139,7 +139,7 @@ def _run(
             return_value=model_layers,
         ),
         patch(
-            "chuk_mcp_lazarus.tools.residual_tools._get_lm_projection",
+            "chuk_mcp_lazarus._residual_helpers._get_lm_projection",
             return_value=_fake_lm_head,
         ),
     ):

@@ -296,7 +296,7 @@ def _prefill_to_layer_impl(
 ) -> dict:
     import mlx.core as mx
 
-    from ..residual_tools import _get_lm_projection
+    from ..._residual_helpers import _get_lm_projection
 
     input_ids = mx.array(tokenizer.encode(prompt, add_special_tokens=True))
     num_tokens = int(input_ids.shape[-1])
@@ -425,7 +425,7 @@ def _kv_inject_test_impl(
 
     from chuk_lazarus.introspection.hooks import ModelHooks
 
-    from ..residual_tools import (
+    from ..._residual_helpers import (
         _get_lm_projection,
         _get_unembed_vector,
         _norm_project,

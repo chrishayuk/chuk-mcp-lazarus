@@ -161,7 +161,7 @@ def _residual_match_impl(
     """Sync implementation of residual_match."""
     import mlx.core as mx
 
-    from ..residual_tools import _extract_position, _run_decomposition_forward
+    from ..._residual_helpers import _extract_position, _run_decomposition_forward
 
     # -- Run target --
     target_ids = mx.array(tokenizer.encode(target_prompt, add_special_tokens=True))

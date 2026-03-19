@@ -11,7 +11,7 @@ ML library) and `chuk-mcp-server` (the transport framework).
 The MCP protocol is inherently asynchronous. Every tool, resource, and
 lifecycle hook is an `async def`. Blocking work (MLX forward passes,
 sklearn fitting) runs inside the framework's thread-pool so the event
-loop is never starved.
+loop is never starved
 
 ```python
 # Yes
@@ -143,51 +143,37 @@ _generate.py        Shared text generation helper.
 _compare.py         Shared comparison kernels (weight, activation,
                     attention divergence).
 _extraction.py      Shared activation extraction helpers.
+_residual_helpers.py Shared residual-stream helpers (lm_head,
+                    decomposition forward, tokenization).
 
 tools/
-  model_tools.py        load_model, get_model_info
-  generation_tools.py   generate_text, predict_next_token, tokenize,
-                        logit_lens, track_token, track_race,
-                        embedding_neighbors
-  activation_tools.py   extract_activations, compare_activations
-  attention_tools.py    attention_pattern, attention_heads
-  probe_tools.py        train_probe, evaluate_probe, scan_probe_across_layers,
-                        probe_at_inference, list_probes
-  steering_tools.py     compute_steering_vector, steer_and_generate,
-                        list_steering_vectors
-  ablation_tools.py     ablate_layers, patch_activations
-  causal_tools.py       trace_token, full_causal_trace
-  residual_tools.py     residual_decomposition, layer_clustering,
-                        logit_attribution, head_attribution, top_neurons
-  attribution_tools.py  attribution_sweep
-  intervention_tools.py component_intervention
-  neuron_tools.py       discover_neurons, analyze_neuron, neuron_trace
-  direction_tools.py    extract_direction
-  experiment_tools.py   create_experiment, add_experiment_result,
-                        get_experiment, list_experiments
-  comparison_tools.py   load_comparison_model, compare_weights,
-                        compare_representations, compare_attention,
-                        compare_generations, unload_comparison_model
-  geometry/             Per-tool subpackage (18 tools)
-    _helpers.py           Shared enums, math, direction extraction,
-                          PCA helpers (collect_activations,
-                          effective_dimensionality)
-    token_space.py        token_space
-    direction_angles.py   direction_angles
-    subspace_decomposition.py  subspace_decomposition
-    residual_trajectory.py     residual_trajectory
-    feature_dimensionality.py  feature_dimensionality
-    decode_residual.py    decode_residual
-    computation_map.py    computation_map
-    inject_residual.py    inject_residual
-    residual_match.py     residual_match
-    compute_subspace.py   compute_subspace, list_subspaces
-    residual_atlas.py     residual_atlas
-    weight_geometry.py    weight_geometry
-    residual_map.py       residual_map
-    branch_and_collapse.py  branch_and_collapse
-    subspace_surgery.py   subspace_surgery
-    build_dark_table.py   build_dark_table, list_dark_tables
+  model/              load_model, get_model_info
+  generation/         generate_text, predict_next_token, tokenize,
+                      logit_lens, track_token, track_race,
+                      embedding_neighbors
+  activation/         extract_activations, compare_activations
+  attention/          attention_pattern, attention_heads
+  probe/              train_probe, evaluate_probe, scan_probe_across_layers,
+                      probe_at_inference, list_probes
+  steering/           compute_steering_vector, steer_and_generate,
+                      list_steering_vectors, extract_direction
+  causal/             trace_token, full_causal_trace,
+                      ablate_layers, patch_activations
+  residual/           residual_decomposition, layer_clustering,
+                      logit_attribution, head_attribution, top_neurons
+  attribution/        attribution_sweep
+  intervention/       component_intervention
+  neuron/             discover_neurons, analyze_neuron, neuron_trace
+  experiment/         create_experiment, add_experiment_result,
+                      get_experiment, list_experiments
+  comparison/         load_comparison_model, compare_weights,
+                      compare_representations, compare_attention,
+                      compare_generations, unload_comparison_model
+  geometry/           Per-tool subpackage (18+ tools)
+    _helpers.py         Shared enums, math, direction extraction,
+                        PCA helpers
+    _injection_helpers.py Shared injection forward/generation helpers
+    token_space.py .. build_dark_table.py  (one file per tool)
 ```
 
 Each layer has a single responsibility:
@@ -197,8 +183,10 @@ Each layer has a single responsibility:
 - **Tools** -- thin translation between MCP parameters and chuk-lazarus APIs.
   Knows about both.
 
-Tools never import each other. Shared logic lives in state modules or
-a private `_util.py`.
+Tool subpackages never import each other. Shared logic lives in
+package-level helper modules (`_residual_helpers.py`, `_extraction.py`,
+`_serialize.py`, `_generate.py`, `_compare.py`) or subpackage-level
+helpers (`geometry/_helpers.py`, `geometry/_injection_helpers.py`).
 
 ---
 

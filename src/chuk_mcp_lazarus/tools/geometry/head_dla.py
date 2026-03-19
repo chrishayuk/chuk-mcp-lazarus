@@ -364,7 +364,7 @@ def _compute_dla_impl(
 
     from chuk_lazarus.introspection.hooks import ModelHooks
 
-    from ..residual_tools import (
+    from ..._residual_helpers import (
         _get_lm_projection,
         _get_unembed_vector,
         _norm_project,
@@ -521,7 +521,7 @@ def _batch_dla_scan_impl(
 
     from chuk_lazarus.introspection.hooks import ModelHooks
 
-    from ..residual_tools import (
+    from ..._residual_helpers import (
         _get_lm_projection,
         _get_unembed_vector,
         _norm_project,
@@ -768,7 +768,7 @@ def _extract_attention_output_impl(
 
     from chuk_lazarus.introspection.hooks import ModelHooks
 
-    from ..residual_tools import _get_lm_projection, _run_decomposition_forward
+    from ..._residual_helpers import _get_lm_projection, _run_decomposition_forward
 
     input_ids = mx.array(tokenizer.encode(prompt, add_special_tokens=True))
     num_tokens = int(input_ids.shape[-1])
@@ -907,7 +907,7 @@ async def get_token_embedding(
 def _get_token_embedding_impl(model: Any, tokenizer: Any, token: str) -> dict:
     import mlx.core as mx
 
-    from ..residual_tools import _get_embed_weight, _get_unembed_vector
+    from ..._residual_helpers import _get_embed_weight, _get_unembed_vector
 
     token_id = _resolve_token_to_id(tokenizer, token)
     if token_id is None:
@@ -1024,7 +1024,7 @@ def _extract_k_vector_impl(
 
     from chuk_lazarus.introspection.hooks import ModelHooks
 
-    from ..residual_tools import _run_decomposition_forward
+    from ..._residual_helpers import _run_decomposition_forward
 
     input_ids = mx.array(tokenizer.encode(prompt, add_special_tokens=True))
     num_tokens = int(input_ids.shape[-1])
@@ -1159,7 +1159,7 @@ def _extract_q_vector_impl(
 
     from chuk_lazarus.introspection.hooks import ModelHooks
 
-    from ..residual_tools import _run_decomposition_forward
+    from ..._residual_helpers import _run_decomposition_forward
 
     input_ids = mx.array(tokenizer.encode(prompt, add_special_tokens=True))
     num_tokens = int(input_ids.shape[-1])

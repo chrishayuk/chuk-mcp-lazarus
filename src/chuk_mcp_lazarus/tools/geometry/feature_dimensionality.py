@@ -137,7 +137,7 @@ def _feature_dimensionality_impl(
     max_dims: int,
 ) -> dict:
     """Sync implementation of feature_dimensionality."""
-    from ..residual_tools import _get_lm_projection, _project_to_logits
+    from ..._residual_helpers import _get_lm_projection, _project_to_logits
 
     # Extract activations for all prompts
     all_acts: list[np.ndarray] = []

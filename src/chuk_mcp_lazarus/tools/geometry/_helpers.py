@@ -130,7 +130,7 @@ def _resolve_token_to_id(tokenizer: Any, token: str) -> int | None:
 
 def _get_unembed_vec_np(model: Any, token_id: int) -> np.ndarray | None:
     """Get unembedding vector for a token as numpy float32."""
-    from ..residual_tools import _get_unembed_vector
+    from ..._residual_helpers import _get_unembed_vector
 
     vec: Any = _get_unembed_vector(model, token_id)
     if vec is None:
@@ -178,7 +178,7 @@ def _extract_direction_vector(
     Returns (label, vector_np, error_message).
     decomp is the result of _run_decomposition_forward if already computed.
     """
-    from ..residual_tools import _extract_position
+    from ..._residual_helpers import _extract_position
 
     if spec.type == DirectionType.TOKEN:
         if spec.value is None:
