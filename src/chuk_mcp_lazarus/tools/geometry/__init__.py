@@ -9,6 +9,8 @@ Importing this package triggers @mcp.tool() registration for all geometry tools.
 """
 
 from . import branch_and_collapse  # noqa: F401
+from . import head_dla  # noqa: F401
+from . import prefill_inject  # noqa: F401
 from . import build_dark_table  # noqa: F401
 from . import computation_map  # noqa: F401
 from . import compute_subspace  # noqa: F401

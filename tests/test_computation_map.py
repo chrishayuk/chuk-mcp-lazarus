@@ -537,3 +537,467 @@ class TestResultModels:
         d = s.model_dump()
         assert d["final_prediction"] == "Canberra"
         assert len(d["crossing_events"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Stub for chuk_mcp_lazarus.tools._serialize (computation_map uses `.._serialize`
+# from tools/geometry/, which resolves to tools._serialize — not the top-level one)
+# ---------------------------------------------------------------------------
+
+
+def _install_tools_serialize_stub() -> None:
+    import sys
+    import types
+
+    mod_name = "chuk_mcp_lazarus.tools._serialize"
+    if mod_name in sys.modules:
+        return
+
+    stub = types.ModuleType(mod_name)
+
+    def to_pylist(arr):
+        return arr.tolist()
+
+    stub.to_pylist = to_pylist  # type: ignore[attr-defined]
+    sys.modules[mod_name] = stub
+
+
+_install_tools_serialize_stub()
+
+
+def _ensure_mx_stack() -> None:
+    """Ensure mx.stack is available in the stub."""
+    import mlx.core as mx
+
+    if not hasattr(mx, "stack"):
+
+        def _stack(arrays, axis=0):
+            arrs = [a._data if hasattr(a, "_data") else np.array(a) for a in arrays]
+            return mx.array(np.stack(arrs, axis=axis))
+
+        mx.stack = _stack  # type: ignore[attr-defined]
+
+
+_ensure_mx_stack()
+
+
+def _ensure_nn_activations() -> None:
+    """Ensure mlx.nn has silu and gelu for the neurons path."""
+    import mlx.nn as nn_mod
+
+    if not hasattr(nn_mod, "silu"):
+        nn_mod.silu = lambda x: x  # type: ignore[attr-defined]
+    if not hasattr(nn_mod, "gelu"):
+        nn_mod.gelu = lambda x: x  # type: ignore[attr-defined]
+
+
+_ensure_nn_activations()
+
+
+# ---------------------------------------------------------------------------
+# TestComputeTopHeads — internal helper function
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_layer_for_heads(
+    num_heads: int = 2,
+    head_dim: int = 4,
+    hidden_dim: int = 8,
+    num_kv_heads: int | None = None,
+    with_rope: bool = False,
+    with_norms: bool = False,
+) -> MagicMock:
+    """Build a mock transformer layer suitable for _compute_top_heads."""
+    if num_kv_heads is None:
+        num_kv_heads = num_heads
+
+    layer = MagicMock()
+    normed_out = mx.array(np.ones((1, 3, hidden_dim), dtype=np.float32))
+    layer.input_layernorm.return_value = normed_out
+
+    attn = MagicMock()
+    attn.q_proj.return_value = mx.array(np.ones((1, 3, num_heads * head_dim), dtype=np.float32))
+    attn.k_proj.return_value = mx.array(np.ones((1, 3, num_kv_heads * head_dim), dtype=np.float32))
+    attn.v_proj.return_value = mx.array(np.ones((1, 3, num_kv_heads * head_dim), dtype=np.float32))
+    attn.o_proj.weight = mx.array(
+        np.random.randn(hidden_dim, num_heads * head_dim).astype(np.float32)
+    )
+    attn.scale = head_dim**-0.5
+
+    if with_rope:
+        attn.rope = MagicMock(side_effect=lambda x: x)
+    else:
+        attn.rope = None
+
+    if with_norms:
+        attn.q_norm = MagicMock(side_effect=lambda x: x)
+        attn.k_norm = MagicMock(side_effect=lambda x: x)
+    else:
+        attn.q_norm = None
+        attn.k_norm = None
+
+    layer.self_attn = attn
+    return layer
+
+
+class TestComputeTopHeadsFunction:
+    """Tests for _compute_top_heads internal helper."""
+
+    NUM_HEADS = 2
+    HEAD_DIM = 4
+    HIDDEN_DIM = 8
+    SEQ_LEN = 3
+
+    def _run(
+        self,
+        top_k: int = 2,
+        num_heads: int = NUM_HEADS,
+        head_dim: int = HEAD_DIM,
+        hidden_dim: int = HIDDEN_DIM,
+        with_rope: bool = False,
+        with_norms: bool = False,
+        num_kv_heads: int | None = None,
+    ) -> list:
+        from chuk_mcp_lazarus.tools.geometry.computation_map import _compute_top_heads
+
+        if num_kv_heads is None:
+            num_kv_heads = num_heads
+
+        layer = _make_mock_layer_for_heads(
+            num_heads=num_heads,
+            head_dim=head_dim,
+            hidden_dim=hidden_dim,
+            num_kv_heads=num_kv_heads,
+            with_rope=with_rope,
+            with_norms=with_norms,
+        )
+
+        prev_h = mx.array(np.ones((1, self.SEQ_LEN, hidden_dim), dtype=np.float32))
+        mask = mx.array(np.zeros((self.SEQ_LEN, self.SEQ_LEN), dtype=np.float32))
+        unembed_mx = mx.array(np.random.randn(hidden_dim).astype(np.float32))
+
+        # lm_head returns logits [1, top_k, vocab]
+        VOCAB = 10
+        mock_lm_head = MagicMock()
+        mock_lm_head.return_value = mx.array(np.random.randn(1, top_k, VOCAB).astype(np.float32))
+
+        tokenizer = MagicMock()
+        tokenizer.decode.side_effect = lambda ids: f"tok{ids[0]}"
+
+        with patch(
+            "mlx.core.fast.scaled_dot_product_attention",
+            return_value=mx.array(
+                np.ones((1, num_heads, self.SEQ_LEN, head_dim), dtype=np.float32)
+            ),
+        ):
+            return _compute_top_heads(
+                layer,
+                prev_h,
+                pos=self.SEQ_LEN - 1,
+                num_heads=num_heads,
+                num_kv_heads=num_kv_heads,
+                head_dim=head_dim,
+                mask=mask,
+                unembed_mx=unembed_mx,
+                lm_head=mock_lm_head,
+                tokenizer=tokenizer,
+                top_k=top_k,
+            )
+
+    def test_returns_list(self) -> None:
+        result = self._run()
+        assert isinstance(result, list)
+
+    def test_length_equals_top_k(self) -> None:
+        result = self._run(top_k=2)
+        assert len(result) == 2
+
+    def test_top_k_clamped_to_num_heads(self) -> None:
+        """top_k larger than num_heads should return at most num_heads entries."""
+        result = self._run(top_k=10, num_heads=2)
+        assert len(result) <= 2
+
+    def test_result_has_tophead_fields(self) -> None:
+        from chuk_mcp_lazarus.tools.geometry.computation_map import TopHead
+
+        result = self._run(top_k=1)
+        assert len(result) == 1
+        h = result[0]
+        assert isinstance(h, TopHead)
+        assert isinstance(h.head, int)
+        assert isinstance(h.logit_contribution, float)
+        assert isinstance(h.top_token, str)
+
+    def test_head_index_in_range(self) -> None:
+        result = self._run(top_k=2, num_heads=2)
+        for h in result:
+            assert 0 <= h.head < 2
+
+    def test_with_rope(self) -> None:
+        """Rope path should apply rope and return valid result."""
+        result = self._run(with_rope=True, top_k=1)
+        assert len(result) == 1
+
+    def test_with_qk_norms(self) -> None:
+        """q_norm / k_norm path should apply norms and return valid result."""
+        result = self._run(with_norms=True, top_k=1)
+        assert len(result) == 1
+
+    def test_grouped_query_attention(self) -> None:
+        """GQA (num_kv_heads < num_heads) should repeat k/v and return results."""
+        result = self._run(
+            num_heads=4,
+            head_dim=4,
+            hidden_dim=16,
+            num_kv_heads=2,
+            top_k=2,
+        )
+        assert len(result) == 2
+
+    def test_zero_top_k_returns_empty(self) -> None:
+        """top_k=0 should return empty list."""
+        result = self._run(top_k=0)
+        assert result == []
+
+    def test_lm_head_called_with_stacked_vecs(self) -> None:
+        """lm_head should be called once with the stacked head vectors."""
+        from chuk_mcp_lazarus.tools.geometry.computation_map import _compute_top_heads
+
+        num_heads = 2
+        head_dim = 4
+        hidden_dim = 8
+        top_k = 2
+
+        layer = _make_mock_layer_for_heads(
+            num_heads=num_heads, head_dim=head_dim, hidden_dim=hidden_dim
+        )
+        prev_h = mx.array(np.ones((1, 3, hidden_dim), dtype=np.float32))
+        mask = mx.array(np.zeros((3, 3), dtype=np.float32))
+        unembed_mx = mx.array(np.ones(hidden_dim, dtype=np.float32))
+
+        mock_lm_head = MagicMock()
+        mock_lm_head.return_value = mx.array(np.random.randn(1, top_k, 10).astype(np.float32))
+
+        tokenizer = MagicMock()
+        tokenizer.decode.side_effect = lambda ids: f"t{ids[0]}"
+
+        with patch(
+            "mlx.core.fast.scaled_dot_product_attention",
+            return_value=mx.array(np.ones((1, num_heads, 3, head_dim), dtype=np.float32)),
+        ):
+            _compute_top_heads(
+                layer,
+                prev_h,
+                pos=2,
+                num_heads=num_heads,
+                num_kv_heads=num_heads,
+                head_dim=head_dim,
+                mask=mask,
+                unembed_mx=unembed_mx,
+                lm_head=mock_lm_head,
+                tokenizer=tokenizer,
+                top_k=top_k,
+            )
+
+        mock_lm_head.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# TestComputeTopNeuronsFunction — internal helper function
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_layer_for_neurons(
+    hidden_dim: int = 8,
+    intermediate_size: int = 16,
+    with_gate: bool = True,
+    with_act_fn: bool = False,
+    four_norms: bool = False,
+) -> MagicMock:
+    """Build a mock transformer layer suitable for _compute_top_neurons."""
+    layer = MagicMock()
+
+    ffn_input = mx.array(np.ones((1, 3, hidden_dim), dtype=np.float32))
+    layer.post_attention_layernorm.return_value = ffn_input
+    layer.pre_feedforward_layernorm.return_value = ffn_input
+
+    mlp = MagicMock()
+    gate_out = mx.array(np.ones((1, 3, intermediate_size), dtype=np.float32) * 0.5)
+    up_out = mx.array(np.ones((1, 3, intermediate_size), dtype=np.float32) * 0.3)
+
+    if with_gate:
+        mlp.gate_proj.return_value = gate_out
+        mlp.up_proj.return_value = up_out
+    else:
+        mlp.up_proj.return_value = up_out
+        del mlp.gate_proj
+
+    mlp.down_proj.weight = mx.array(
+        np.random.randn(hidden_dim, intermediate_size).astype(np.float32)
+    )
+
+    if with_act_fn:
+        mlp.act = MagicMock(side_effect=lambda x: x)
+    else:
+        mlp.act = None
+        mlp.activation = None
+
+    layer.mlp = mlp
+    return layer
+
+
+class TestComputeTopNeuronsFunction:
+    """Tests for _compute_top_neurons internal helper."""
+
+    HIDDEN_DIM = 8
+    INTERMEDIATE = 16
+    SEQ_LEN = 3
+
+    def _run(
+        self,
+        top_k: int = 3,
+        with_gate: bool = True,
+        with_act_fn: bool = False,
+        four_norms: bool = False,
+        hidden_dim: int = HIDDEN_DIM,
+        intermediate_size: int = INTERMEDIATE,
+    ) -> list:
+        from chuk_mcp_lazarus.tools.geometry.computation_map import _compute_top_neurons
+
+        layer = _make_mock_layer_for_neurons(
+            hidden_dim=hidden_dim,
+            intermediate_size=intermediate_size,
+            with_gate=with_gate,
+            with_act_fn=with_act_fn,
+            four_norms=four_norms,
+        )
+
+        prev_h = mx.array(np.ones((1, self.SEQ_LEN, hidden_dim), dtype=np.float32))
+        attn_out = mx.array(np.ones((1, self.SEQ_LEN, hidden_dim), dtype=np.float32) * 0.1)
+        pos = self.SEQ_LEN - 1
+        unembed_mx = mx.array(np.random.randn(hidden_dim).astype(np.float32))
+
+        VOCAB = 10
+        mock_lm_head = MagicMock()
+        mock_lm_head.return_value = mx.array(np.random.randn(1, top_k, VOCAB).astype(np.float32))
+
+        tokenizer = MagicMock()
+        tokenizer.decode.side_effect = lambda ids: f"tok{ids[0]}"
+
+        return _compute_top_neurons(
+            layer,
+            prev_h,
+            attn_out,
+            pos=pos,
+            unembed_mx=unembed_mx,
+            lm_head=mock_lm_head,
+            tokenizer=tokenizer,
+            top_k=top_k,
+            four_norms=four_norms,
+        )
+
+    def test_returns_list(self) -> None:
+        result = self._run()
+        assert isinstance(result, list)
+
+    def test_length_equals_top_k(self) -> None:
+        result = self._run(top_k=3)
+        assert len(result) == 3
+
+    def test_top_k_clamped_to_intermediate_size(self) -> None:
+        """top_k larger than intermediate_size should return at most intermediate_size."""
+        result = self._run(top_k=100, intermediate_size=16)
+        assert len(result) <= 16
+
+    def test_result_has_topneuron_fields(self) -> None:
+        from chuk_mcp_lazarus.tools.geometry.computation_map import TopNeuron
+
+        result = self._run(top_k=1)
+        assert len(result) == 1
+        n = result[0]
+        assert isinstance(n, TopNeuron)
+        assert isinstance(n.neuron_index, int)
+        assert isinstance(n.activation, float)
+        assert isinstance(n.logit_contribution, float)
+        assert isinstance(n.top_token, str)
+
+    def test_neuron_index_in_range(self) -> None:
+        result = self._run(top_k=3)
+        for n in result:
+            assert 0 <= n.neuron_index < self.INTERMEDIATE
+
+    def test_gated_path(self) -> None:
+        """SwiGLU (gate_proj present) path should return valid neurons."""
+        result = self._run(with_gate=True, top_k=2)
+        assert len(result) == 2
+
+    def test_non_gated_path(self) -> None:
+        """Non-gated (no gate_proj) path should use gelu and return valid neurons."""
+        result = self._run(with_gate=False, top_k=2)
+        assert len(result) == 2
+
+    def test_with_custom_act_fn_gated(self) -> None:
+        """When mlp.act is set and gate_proj exists, it should use mlp.act."""
+        result = self._run(with_gate=True, with_act_fn=True, top_k=2)
+        assert len(result) == 2
+
+    def test_with_custom_act_fn_non_gated(self) -> None:
+        """When mlp.act is set and no gate_proj, it should use mlp.act."""
+        result = self._run(with_gate=False, with_act_fn=True, top_k=2)
+        assert len(result) == 2
+
+    def test_four_norms_path(self) -> None:
+        """four_norms=True should use pre_feedforward_layernorm instead."""
+        result = self._run(four_norms=True, top_k=2)
+        assert len(result) == 2
+
+    def test_standard_norms_path(self) -> None:
+        """four_norms=False should use post_attention_layernorm."""
+        result = self._run(four_norms=False, top_k=2)
+        assert len(result) == 2
+
+    def test_zero_top_k_returns_empty(self) -> None:
+        """top_k=0 should return empty list."""
+        result = self._run(top_k=0)
+        assert result == []
+
+    def test_lm_head_called_with_stacked_vecs(self) -> None:
+        """lm_head should be called once when top_k > 0."""
+        from chuk_mcp_lazarus.tools.geometry.computation_map import _compute_top_neurons
+
+        layer = _make_mock_layer_for_neurons()
+        prev_h = mx.array(np.ones((1, 3, self.HIDDEN_DIM), dtype=np.float32))
+        attn_out = mx.array(np.zeros((1, 3, self.HIDDEN_DIM), dtype=np.float32))
+        unembed_mx = mx.array(np.ones(self.HIDDEN_DIM, dtype=np.float32))
+
+        mock_lm_head = MagicMock()
+        mock_lm_head.return_value = mx.array(np.random.randn(1, 2, 10).astype(np.float32))
+
+        tokenizer = MagicMock()
+        tokenizer.decode.side_effect = lambda ids: f"t{ids[0]}"
+
+        _compute_top_neurons(
+            layer,
+            prev_h,
+            attn_out,
+            pos=2,
+            unembed_mx=unembed_mx,
+            lm_head=mock_lm_head,
+            tokenizer=tokenizer,
+            top_k=2,
+            four_norms=False,
+        )
+
+        mock_lm_head.assert_called_once()
+
+    def test_logit_contributions_are_floats(self) -> None:
+        """All logit_contribution values should be Python floats."""
+        result = self._run(top_k=3)
+        for n in result:
+            assert isinstance(n.logit_contribution, float)
+
+    def test_activations_are_floats(self) -> None:
+        """All activation values should be Python floats."""
+        result = self._run(top_k=3)
+        for n in result:
+            assert isinstance(n.activation, float)

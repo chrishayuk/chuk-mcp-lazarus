@@ -124,3 +124,87 @@ class TestListExperiments:
         await create_experiment(name="exp2")
         result = await list_experiments()
         assert result["count"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Exception-path tests
+# ---------------------------------------------------------------------------
+
+
+class TestCreateExperimentError:
+    """Test exception paths in create_experiment (lines 60-62)."""
+
+    @pytest.mark.asyncio
+    async def test_store_exception(self, loaded_model_state: MagicMock) -> None:
+        from unittest.mock import MagicMock, patch
+
+        mock_store = MagicMock()
+        mock_store.create.side_effect = RuntimeError("disk full")
+        with patch("chuk_mcp_lazarus.tools.experiment_tools.ExperimentStore") as mock_es:
+            mock_es.get.return_value = mock_store
+            result = await create_experiment(name="bad_exp")
+        assert result["error"] is True
+        assert result["error_type"] == "ExperimentStoreError"
+
+
+class TestAddExperimentResultError:
+    """Test general exception path in add_experiment_result (lines 91-93)."""
+
+    @pytest.mark.asyncio
+    async def test_store_general_exception(self, loaded_model_state: MagicMock) -> None:
+        from unittest.mock import MagicMock, patch
+
+        mock_store = MagicMock()
+        mock_store.add_result.side_effect = IOError("write failed")
+        with patch("chuk_mcp_lazarus.tools.experiment_tools.ExperimentStore") as mock_es:
+            mock_es.get.return_value = mock_store
+            result = await add_experiment_result(
+                experiment_id="any_id",
+                step_name="step",
+                result={"val": 1},
+            )
+        assert result["error"] is True
+        assert result["error_type"] == "ExperimentStoreError"
+
+
+class TestGetExperimentDiskFallback:
+    """Test disk fallback path in get_experiment (line 118)."""
+
+    @pytest.mark.asyncio
+    async def test_load_from_disk_success(self, loaded_model_state: MagicMock) -> None:
+        from unittest.mock import MagicMock, patch
+
+        import datetime
+
+        from chuk_mcp_lazarus.experiment_store import ExperimentDetail, ExperimentMetadata
+
+        mock_store = MagicMock()
+
+        # Build a minimal ExperimentDetail for model_dump
+        meta = ExperimentMetadata(
+            experiment_id="some_disk_id",
+            name="disk_exp",
+            model_id="test/model",
+            created_at=datetime.datetime.now().isoformat(),
+        )
+        real_exp = ExperimentDetail(metadata=meta, steps=[])
+
+        call_count = [0]
+
+        def fake_get(eid):
+            if call_count[0] == 0:
+                call_count[0] += 1
+                return None  # not in memory on first call
+            return real_exp
+
+        mock_store.get_experiment.side_effect = fake_get
+        mock_store.load_from_disk.return_value = True
+
+        with patch("chuk_mcp_lazarus.tools.experiment_tools.ExperimentStore") as mock_es:
+            mock_es.get.return_value = mock_store
+            result = await get_experiment(experiment_id="some_disk_id")
+
+        # load_from_disk should have been called once
+        mock_store.load_from_disk.assert_called_once_with("some_disk_id")
+        assert "error" not in result
+        assert result["metadata"]["name"] == "disk_exp"

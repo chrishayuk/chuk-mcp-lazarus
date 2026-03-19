@@ -1150,3 +1150,669 @@ class TestFeatureDimensionalityImpl:
     def test_interpretation(self) -> None:
         r = self._run()
         assert r["summary"]["interpretation"] in ("directional", "subspace", "distributed")
+
+
+# ---------------------------------------------------------------------------
+# Extended helpers tests
+# ---------------------------------------------------------------------------
+
+
+class TestHelpersExtended:
+    """Extended tests for _helpers.py functions not covered by TestHelpers."""
+
+    def test_unit_zero_vector(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import _unit
+
+        z = np.zeros(4, dtype=np.float32)
+        result = _unit(z)
+        assert np.allclose(result, 0.0)
+
+    def test_unit_normal_vector(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import _unit
+
+        v = np.array([3.0, 4.0], dtype=np.float32)
+        result = _unit(v)
+        assert abs(np.linalg.norm(result) - 1.0) < 1e-6
+
+    def test_auto_layers_small(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import _auto_layers
+
+        layers = _auto_layers(5, max_points=20)
+        assert layers == [0, 1, 2, 3, 4]
+
+    def test_auto_layers_large(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import _auto_layers
+
+        layers = _auto_layers(100, max_points=20)
+        assert len(layers) <= 21  # at most max_points + 1 for last
+        assert 0 in layers
+        assert 99 in layers
+
+    def test_auto_layers_exact_max(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import _auto_layers
+
+        layers = _auto_layers(20, max_points=20)
+        assert layers == list(range(20))
+
+    def test_resolve_token_bare(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import _resolve_token_to_id
+
+        tokenizer = MagicMock()
+        tokenizer.encode.side_effect = (
+            lambda t, **kw: [42] if t == "Paris" else ([43] if t == " Paris" else [])
+        )
+        result = _resolve_token_to_id(tokenizer, "Paris")
+        assert result == 42
+
+    def test_resolve_token_space_prefixed(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import _resolve_token_to_id
+
+        tokenizer = MagicMock()
+        # bare form returns empty, space-prefixed returns token
+        tokenizer.encode.side_effect = lambda t, **kw: [] if t == "hello" else [99]
+        result = _resolve_token_to_id(tokenizer, "hello")
+        assert result == 99
+
+    def test_resolve_token_not_found(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import _resolve_token_to_id
+
+        tokenizer = MagicMock()
+        tokenizer.encode.return_value = []
+        result = _resolve_token_to_id(tokenizer, "unknown")
+        assert result is None
+
+    def test_get_unembed_vec_np_success(self):
+        from unittest.mock import patch
+
+        import mlx.core as mx
+
+        from chuk_mcp_lazarus.tools.geometry._helpers import _get_unembed_vec_np
+
+        model = MagicMock()
+        fake_vec = mx.array([1.0, 2.0, 3.0])
+        with patch(
+            "chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector", return_value=fake_vec
+        ):
+            result = _get_unembed_vec_np(model, 42)
+        assert result is not None
+        assert result.dtype == np.float32
+        assert len(result) == 3
+
+    def test_get_unembed_vec_np_none(self):
+        from unittest.mock import patch
+
+        from chuk_mcp_lazarus.tools.geometry._helpers import _get_unembed_vec_np
+
+        model = MagicMock()
+        with patch("chuk_mcp_lazarus.tools.residual_tools._get_unembed_vector", return_value=None):
+            result = _get_unembed_vec_np(model, 42)
+        assert result is None
+
+    def test_parse_direction_spec_valid(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import _parse_direction_spec
+
+        spec, err = _parse_direction_spec({"type": "token", "value": "Paris"})
+        assert err is None
+        assert spec is not None
+        assert spec.type.value == "token"
+
+    def test_parse_direction_spec_missing_type(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import _parse_direction_spec
+
+        spec, err = _parse_direction_spec({"value": "Paris"})
+        assert spec is None
+        assert "type" in err
+
+    def test_parse_direction_spec_not_dict(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import _parse_direction_spec
+
+        spec, err = _parse_direction_spec("invalid")
+        assert spec is None
+        assert err is not None
+
+    def test_parse_direction_spec_invalid_type(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import _parse_direction_spec
+
+        spec, err = _parse_direction_spec({"type": "totally_invalid"})
+        assert spec is None
+        assert err is not None
+
+    def test_dims_for_threshold_found(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import dims_for_threshold
+
+        result = dims_for_threshold([0.3, 0.6, 0.8, 0.95], 0.5, 4)
+        assert result == 2
+
+    def test_dims_for_threshold_not_reached(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import dims_for_threshold
+
+        result = dims_for_threshold([0.3, 0.6, 0.8], 0.99, 3)
+        assert result == 3  # never reached, returns total
+
+    def test_dims_for_threshold_first_elem(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import dims_for_threshold
+
+        result = dims_for_threshold([0.99, 0.999], 0.5, 2)
+        assert result == 1
+
+    def test_effective_dimensionality_output(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import effective_dimensionality
+
+        s_vals = np.array([3.0, 2.0, 1.0, 0.5])
+        total_var = float(sum(v**2 for v in s_vals))
+        eff_dim, cumulative = effective_dimensionality(s_vals, 4, total_var)
+        assert "dims_for_50pct" in eff_dim
+        assert "dims_for_80pct" in eff_dim
+        assert "dims_for_90pct" in eff_dim
+        assert "dims_for_95pct" in eff_dim
+        assert "dims_for_99pct" in eff_dim
+        assert len(cumulative) == 4
+        assert cumulative[-1] > 0.99
+
+    def test_effective_dimensionality_monotonic(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import effective_dimensionality
+
+        s_vals = np.array([3.0, 2.0, 1.0, 0.5])
+        total_var = float(sum(v**2 for v in s_vals))
+        _, cumulative = effective_dimensionality(s_vals, 4, total_var)
+        for i in range(1, len(cumulative)):
+            assert cumulative[i] >= cumulative[i - 1]
+
+    def test_collect_activations_single_layer(self):
+        from unittest.mock import patch
+
+        from chuk_mcp_lazarus.tools.geometry._helpers import collect_activations
+
+        model = MagicMock()
+        config = MagicMock()
+        tokenizer = MagicMock()
+        prompts = ["hello", "world", "foo"]
+        acts = [np.array([float(i), 0.0, 0.0, 0.0]) for i in range(3)]
+        call_idx = [0]
+
+        def fake_extract(m, c, t, p, lyr, pos):
+            idx = call_idx[0]
+            call_idx[0] += 1
+            return acts[idx].tolist()
+
+        with patch(
+            "chuk_mcp_lazarus._extraction.extract_activation_at_layer", side_effect=fake_extract
+        ):
+            result = collect_activations(model, config, tokenizer, prompts, [5])
+        assert 5 in result
+        assert len(result[5]) == 3
+
+    def test_collect_activations_multi_layer(self):
+        from unittest.mock import patch
+
+        from chuk_mcp_lazarus.tools.geometry._helpers import collect_activations
+
+        model = MagicMock()
+        config = MagicMock()
+        tokenizer = MagicMock()
+        prompts = ["hello", "world"]
+
+        def fake_extract_all(m, c, t, p, layers, pos):
+            return {lyr: [float(lyr)] * 4 for lyr in layers}
+
+        with patch(
+            "chuk_mcp_lazarus._extraction.extract_activations_all_layers",
+            side_effect=fake_extract_all,
+        ):
+            result = collect_activations(model, config, tokenizer, prompts, [3, 7])
+        assert 3 in result
+        assert 7 in result
+        assert len(result[3]) == 2
+
+
+# ---------------------------------------------------------------------------
+# _extract_direction_vector tests
+# ---------------------------------------------------------------------------
+
+
+class TestExtractDirectionVector:
+    """Tests for _extract_direction_vector covering all spec types."""
+
+    def _make_base(self):
+        model = MagicMock()
+        config = MagicMock()
+        tokenizer = MagicMock()
+        tokenizer.encode.return_value = [1, 2, 3]
+        tokenizer.decode.side_effect = lambda ids, **kw: f"tok{ids[0]}"
+        meta = MagicMock()
+        meta.hidden_dim = 4
+        meta.num_attention_heads = 2
+        meta.num_layers = 4
+        return model, config, tokenizer, meta
+
+    def test_token_no_value(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        model, config, tokenizer, meta = self._make_base()
+        spec = DirectionSpec(type=DirectionType.TOKEN, value=None)
+        label, vec, err = _extract_direction_vector(
+            model, config, tokenizer, meta, "test", 0, spec, -1, None
+        )
+        assert err is not None
+        assert "value" in err
+
+    def test_token_cannot_encode(self):
+        from unittest.mock import patch
+
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        model, config, tokenizer, meta = self._make_base()
+        spec = DirectionSpec(type=DirectionType.TOKEN, value="unknowntoken")
+        with patch(
+            "chuk_mcp_lazarus.tools.geometry._helpers._resolve_token_to_id", return_value=None
+        ):
+            label, vec, err = _extract_direction_vector(
+                model, config, tokenizer, meta, "test", 0, spec, -1, None
+            )
+        assert err is not None
+        assert vec is None
+
+    def test_token_no_unembed(self):
+        from unittest.mock import patch
+
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        model, config, tokenizer, meta = self._make_base()
+        spec = DirectionSpec(type=DirectionType.TOKEN, value="Paris")
+        with (
+            patch("chuk_mcp_lazarus.tools.geometry._helpers._resolve_token_to_id", return_value=42),
+            patch(
+                "chuk_mcp_lazarus.tools.geometry._helpers._get_unembed_vec_np", return_value=None
+            ),
+        ):
+            label, vec, err = _extract_direction_vector(
+                model, config, tokenizer, meta, "test", 0, spec, -1, None
+            )
+        assert err is not None
+        assert vec is None
+
+    def test_token_success(self):
+        from unittest.mock import patch
+
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        model, config, tokenizer, meta = self._make_base()
+        spec = DirectionSpec(type=DirectionType.TOKEN, value="Paris")
+        fake_vec = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+        with (
+            patch("chuk_mcp_lazarus.tools.geometry._helpers._resolve_token_to_id", return_value=42),
+            patch(
+                "chuk_mcp_lazarus.tools.geometry._helpers._get_unembed_vec_np",
+                return_value=fake_vec,
+            ),
+        ):
+            label, vec, err = _extract_direction_vector(
+                model, config, tokenizer, meta, "test", 0, spec, -1, None
+            )
+        assert err is None
+        assert label == "token:Paris"
+        assert vec is not None
+
+    def test_steering_vector_no_value(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        model, config, tokenizer, meta = self._make_base()
+        spec = DirectionSpec(type=DirectionType.STEERING_VECTOR, value=None)
+        label, vec, err = _extract_direction_vector(
+            model, config, tokenizer, meta, "test", 0, spec, -1, None
+        )
+        assert err is not None
+        assert "value" in err.lower() or "name" in err.lower()
+
+    def test_steering_vector_not_found(self):
+        from unittest.mock import patch
+
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        model, config, tokenizer, meta = self._make_base()
+        spec = DirectionSpec(type=DirectionType.STEERING_VECTOR, value="nonexistent")
+        mock_reg = MagicMock()
+        mock_reg.fetch.return_value = None
+        with patch("chuk_mcp_lazarus.tools.geometry._helpers.SteeringVectorRegistry") as mock_sv:
+            mock_sv.get.return_value = mock_reg
+            label, vec, err = _extract_direction_vector(
+                model, config, tokenizer, meta, "test", 0, spec, -1, None
+            )
+        assert err is not None
+        assert vec is None
+
+    def test_steering_vector_success(self):
+        from unittest.mock import patch
+
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        model, config, tokenizer, meta = self._make_base()
+        spec = DirectionSpec(type=DirectionType.STEERING_VECTOR, value="my_sv")
+        fake_sv = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+        mock_reg = MagicMock()
+        mock_reg.fetch.return_value = (fake_sv, MagicMock())
+        with patch("chuk_mcp_lazarus.tools.geometry._helpers.SteeringVectorRegistry") as mock_sv:
+            mock_sv.get.return_value = mock_reg
+            label, vec, err = _extract_direction_vector(
+                model, config, tokenizer, meta, "test", 0, spec, -1, None
+            )
+        assert err is None
+        assert label == "sv:my_sv"
+
+    def test_decomp_required_for_residual(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        model, config, tokenizer, meta = self._make_base()
+        spec = DirectionSpec(type=DirectionType.RESIDUAL, value=None)
+        label, vec, err = _extract_direction_vector(
+            model, config, tokenizer, meta, "test", 0, spec, -1, None
+        )
+        assert err is not None
+        assert "not available" in err or "Decomposition" in err
+
+    def test_residual_success(self):
+        from unittest.mock import patch
+
+        import mlx.core as mx
+
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        model, config, tokenizer, meta = self._make_base()
+        spec = DirectionSpec(type=DirectionType.RESIDUAL, value=None)
+        fake_h = mx.array([[[1.0, 2.0, 3.0, 4.0]]])  # [1, 1, 4]
+        decomp = {"hidden_states": {0: fake_h}, "ffn_outputs": {}, "attn_outputs": {}}
+        with patch(
+            "chuk_mcp_lazarus.tools.residual_tools._extract_position",
+            return_value=mx.array([1.0, 2.0, 3.0, 4.0]),
+        ):
+            label, vec, err = _extract_direction_vector(
+                model, config, tokenizer, meta, "test", 0, spec, -1, decomp
+            )
+        assert err is None
+        assert label == "residual"
+        assert vec is not None
+
+    def test_ffn_output_missing(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        model, config, tokenizer, meta = self._make_base()
+        spec = DirectionSpec(type=DirectionType.FFN_OUTPUT, value=None)
+        decomp = {"hidden_states": {}, "ffn_outputs": {}, "attn_outputs": {}}
+        label, vec, err = _extract_direction_vector(
+            model, config, tokenizer, meta, "test", 0, spec, -1, decomp
+        )
+        assert err is not None
+        assert vec is None
+
+    def test_attention_output_missing(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        model, config, tokenizer, meta = self._make_base()
+        spec = DirectionSpec(type=DirectionType.ATTENTION_OUTPUT, value=None)
+        decomp = {"hidden_states": {}, "ffn_outputs": {}, "attn_outputs": {}}
+        label, vec, err = _extract_direction_vector(
+            model, config, tokenizer, meta, "test", 0, spec, -1, decomp
+        )
+        assert err is not None
+        assert vec is None
+
+    def test_head_output_no_value(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        import mlx.core as mx
+
+        model, config, tokenizer, meta = self._make_base()
+        spec = DirectionSpec(type=DirectionType.HEAD_OUTPUT, value=None)
+        decomp = {
+            "hidden_states": {},
+            "ffn_outputs": {},
+            "attn_outputs": {0: mx.array([[[1.0, 2.0, 3.0, 4.0]]])},
+        }
+        label, vec, err = _extract_direction_vector(
+            model, config, tokenizer, meta, "test", 0, spec, -1, decomp
+        )
+        assert err is not None
+        assert "value" in err.lower() or "head" in err.lower()
+
+    def test_neuron_no_value(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        model, config, tokenizer, meta = self._make_base()
+        spec = DirectionSpec(type=DirectionType.NEURON, value=None)
+        label, vec, err = _extract_direction_vector(
+            model, config, tokenizer, meta, "test", 0, spec, -1, None
+        )
+        assert err is not None
+
+    def test_neuron_success(self):
+        from unittest.mock import patch
+
+        import mlx.core as mx
+
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        model, config, tokenizer, meta = self._make_base()
+        spec = DirectionSpec(type=DirectionType.NEURON, value=5)
+
+        # down_proj.weight must be an mx.array instance (MockMxArray in test env)
+        fake_weight = mx.array(np.ones((4, 8), dtype=np.float32))
+        mock_target = MagicMock()
+        mock_target.mlp.down_proj.weight = fake_weight
+
+        mock_helper = MagicMock()
+        mock_helper._get_layers.return_value = [mock_target, mock_target]
+
+        with patch("chuk_lazarus.introspection.hooks.ModelHooks", return_value=mock_helper):
+            label, vec, err = _extract_direction_vector(
+                model, config, tokenizer, meta, "test", 0, spec, -1, None
+            )
+        assert err is None
+        assert label == "neuron:5"
+        assert vec is not None
+
+    def test_neuron_layer_out_of_range(self):
+        from unittest.mock import patch
+
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        model, config, tokenizer, meta = self._make_base()
+        spec = DirectionSpec(type=DirectionType.NEURON, value=0)
+
+        mock_helper = MagicMock()
+        mock_helper._get_layers.return_value = []  # empty → layer 0 >= 0 → out of range
+
+        with patch("chuk_lazarus.introspection.hooks.ModelHooks", return_value=mock_helper):
+            label, vec, err = _extract_direction_vector(
+                model, config, tokenizer, meta, "test", 0, spec, -1, None
+            )
+        assert err is not None
+        assert "out of range" in err
+
+    def test_residual_hidden_state_missing(self):
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        model, config, tokenizer, meta = self._make_base()
+        spec = DirectionSpec(type=DirectionType.RESIDUAL, value=None)
+        # Layer 0 not in hidden_states
+        decomp = {"hidden_states": {99: MagicMock()}, "ffn_outputs": {}, "attn_outputs": {}}
+        label, vec, err = _extract_direction_vector(
+            model, config, tokenizer, meta, "test", 0, spec, -1, decomp
+        )
+        assert err is not None
+        assert "No hidden state" in err
+
+    def test_ffn_output_success(self):
+        from unittest.mock import patch
+
+        import mlx.core as mx
+
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        model, config, tokenizer, meta = self._make_base()
+        spec = DirectionSpec(type=DirectionType.FFN_OUTPUT, value=None)
+        fake_h = mx.array([[[1.0, 2.0, 3.0, 4.0]]])
+        decomp = {"hidden_states": {}, "ffn_outputs": {0: fake_h}, "attn_outputs": {}}
+        with patch(
+            "chuk_mcp_lazarus.tools.residual_tools._extract_position",
+            return_value=mx.array([1.0, 2.0, 3.0, 4.0]),
+        ):
+            label, vec, err = _extract_direction_vector(
+                model, config, tokenizer, meta, "test", 0, spec, -1, decomp
+            )
+        assert err is None
+        assert label == "ffn_output"
+        assert vec is not None
+
+    def test_attention_output_success(self):
+        from unittest.mock import patch
+
+        import mlx.core as mx
+
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        model, config, tokenizer, meta = self._make_base()
+        spec = DirectionSpec(type=DirectionType.ATTENTION_OUTPUT, value=None)
+        fake_h = mx.array([[[1.0, 2.0, 3.0, 4.0]]])
+        decomp = {"hidden_states": {}, "ffn_outputs": {}, "attn_outputs": {0: fake_h}}
+        with patch(
+            "chuk_mcp_lazarus.tools.residual_tools._extract_position",
+            return_value=mx.array([1.0, 2.0, 3.0, 4.0]),
+        ):
+            label, vec, err = _extract_direction_vector(
+                model, config, tokenizer, meta, "test", 0, spec, -1, decomp
+            )
+        assert err is None
+        assert label == "attn_output"
+        assert vec is not None
+
+    def test_head_output_success(self):
+        from unittest.mock import patch
+
+        import mlx.core as mx
+
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        model, config, tokenizer, meta = self._make_base()
+        meta.hidden_dim = 4
+        meta.num_attention_heads = 2
+        spec = DirectionSpec(type=DirectionType.HEAD_OUTPUT, value=0)
+
+        fake_attn_out = mx.array([[[1.0, 2.0, 3.0, 4.0]]])
+        fake_weight = mx.array(np.ones((4, 4), dtype=np.float32))
+        mock_target = MagicMock()
+        mock_target.self_attn.o_proj.weight = fake_weight
+        mock_helper = MagicMock()
+        mock_helper._get_layers.return_value = [mock_target, mock_target]
+
+        decomp = {"hidden_states": {}, "ffn_outputs": {}, "attn_outputs": {0: fake_attn_out}}
+        with patch("chuk_lazarus.introspection.hooks.ModelHooks", return_value=mock_helper):
+            label, vec, err = _extract_direction_vector(
+                model, config, tokenizer, meta, "test", 0, spec, -1, decomp
+            )
+        assert err is None
+        assert label == "head:0"
+        assert vec is not None
+
+    def test_head_output_out_of_range(self):
+        from unittest.mock import patch
+
+        import mlx.core as mx
+
+        from chuk_mcp_lazarus.tools.geometry._helpers import (
+            DirectionSpec,
+            DirectionType,
+            _extract_direction_vector,
+        )
+
+        model, config, tokenizer, meta = self._make_base()
+        meta.hidden_dim = 4
+        meta.num_attention_heads = 2
+        spec = DirectionSpec(type=DirectionType.HEAD_OUTPUT, value=99)  # out of range
+
+        fake_attn_out = mx.array([[[1.0, 2.0, 3.0, 4.0]]])
+        mock_helper = MagicMock()
+        mock_helper._get_layers.return_value = [MagicMock(), MagicMock()]
+
+        decomp = {"hidden_states": {}, "ffn_outputs": {}, "attn_outputs": {0: fake_attn_out}}
+        with patch("chuk_lazarus.introspection.hooks.ModelHooks", return_value=mock_helper):
+            label, vec, err = _extract_direction_vector(
+                model, config, tokenizer, meta, "test", 0, spec, -1, decomp
+            )
+        assert err is not None
+        assert vec is None
