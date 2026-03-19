@@ -1361,7 +1361,6 @@ class TestGenerateFromHidden:
         without an early break, so the softmax+categorical path (lines 310-311)
         is definitely executed and measured.
         """
-        import mlx.core as mx
 
         model = self._make_model_returns_logits(next_token_id=3, vocab=10, seq_len=4)
         # eos=99 is never returned by the stub's categorical (always returns 0)
