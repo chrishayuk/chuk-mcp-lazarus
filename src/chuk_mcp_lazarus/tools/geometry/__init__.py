@@ -15,6 +15,8 @@ from . import kv_vectors  # noqa: F401  (re-exports from head_dla)
 from . import prefill_inject  # noqa: F401
 from . import build_dark_table  # noqa: F401
 from . import computation_map  # noqa: F401
+from . import context_map  # noqa: F401
+from . import knowledge_store_browse  # noqa: F401
 from . import compute_subspace  # noqa: F401
 from . import decode_residual  # noqa: F401
 from . import direction_angles  # noqa: F401

@@ -227,7 +227,8 @@ def _compute_per_head_attention(
         keys = attn.k_norm(keys)
 
     if hasattr(attn, "rope") and attn.rope is not None:
-        queries, keys = attn.rope(queries, keys)
+        queries = attn.rope(queries)
+        keys = attn.rope(keys)
 
     if num_kv_heads < num_heads:
         n_rep = num_heads // num_kv_heads
@@ -1066,7 +1067,8 @@ def _extract_k_vector_impl(
         )
         if hasattr(attn, "q_norm") and attn.q_norm is not None:
             queries = attn.q_norm(queries)
-        queries, keys = attn.rope(queries, keys)
+        queries = attn.rope(queries)
+        keys = attn.rope(keys)
 
     k_vec = keys[0, kv_head, pos, :]
     mx.eval(k_vec)
@@ -1201,7 +1203,8 @@ def _extract_q_vector_impl(
         )
         if hasattr(attn, "k_norm") and attn.k_norm is not None:
             keys = attn.k_norm(keys)
-        queries, keys = attn.rope(queries, keys)
+        queries = attn.rope(queries)
+        keys = attn.rope(keys)
 
     q_vec = queries[0, head, pos, :]
     mx.eval(q_vec)
